@@ -47,7 +47,10 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   // Preload All Frames
   useEffect(() => {
     let totallyLoaded = 0;
-    const totalFrames = SCENES_CONFIG.reduce((acc, s) => acc + s.count, 0);
+    const isMobile = window.innerWidth < 768;
+    const frameStep = isMobile ? 3 : 1; // Load 1/3 hardware frames on mobile to slash memory
+
+    const totalFrames = SCENES_CONFIG.reduce((acc, s) => acc + Math.ceil(s.count / frameStep), 0);
     const loadedManifest = {};
 
     // Safety Timeout: Force load after 20 seconds to prevent getting stuck
@@ -67,7 +70,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     SCENES_CONFIG.forEach((scene, sIdx) => {
       const sceneImages = [];
-      for (let i = 1; i <= scene.count; i++) {
+      for (let i = 1; i <= scene.count; i += frameStep) {
         const img = new Image();
         const frameNumber = i.toString().padStart(4, '0');
         img.src = `${scene.path}/frame_${frameNumber}.jpg`;
@@ -164,7 +167,10 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
             internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
           }
 
-          const frameIdx = Math.round(internalProgress * (SCENES_CONFIG[currentSceneIdx].count - 1));
+          // Map internal progress to the sparse array length
+          const frameStep = isMobile ? 3 : 1;
+          const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
+          const frameIdx = Math.round(internalProgress * (sparseLength - 1));
 
           // Only Redraw if something changed
           if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
