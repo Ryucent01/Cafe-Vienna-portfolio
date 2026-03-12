@@ -14,17 +14,21 @@ import Scene6Drinking from './scenes/Scene6Drinking';
 gsap.registerPlugin(ScrollTrigger);
 
 const SCENES_CONFIG = [
-  { id: 1, path: '/assets/frames/scene1', count: 120, Component: Scene1Exterior },
-  { id: 2, path: '/assets/frames/scene2', count: 120, Component: Scene2Entering },
-  { id: 3, path: '/assets/frames/scene3', count: 120, Component: Scene3CoffeeBlending },
-  { id: 4, path: '/assets/frames/scene4', count: 120, Component: Scene4EspressoPour },
-  { id: 5, path: '/assets/frames/scene5', count: 120, Component: Scene5MixingSugar },
-  { id: 6, path: '/assets/frames/scene6', count: 120, Component: Scene6Drinking },
+  { id: 1, path: '/assets/frames/scene1', videoPath: '/assets/videos/1-Exterior.mp4', count: 120, Component: Scene1Exterior },
+  { id: 2, path: '/assets/frames/scene2', videoPath: '/assets/videos/2-Entering.mp4', count: 120, Component: Scene2Entering },
+  { id: 3, path: '/assets/frames/scene3', videoPath: '/assets/videos/3-Coffee_blending.mp4', count: 120, Component: Scene3CoffeeBlending },
+  { id: 4, path: '/assets/frames/scene4', videoPath: '/assets/videos/4-Espresso_pour.mp4', count: 120, Component: Scene4EspressoPour },
+  { id: 5, path: '/assets/frames/scene5', videoPath: '/assets/videos/5-Mixing_sugar.mp4', count: 120, Component: Scene5MixingSugar },
+  { id: 6, path: '/assets/frames/scene6', videoPath: '/assets/videos/6-Drinking.mp4', count: 120, Component: Scene6Drinking },
 ];
 
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
+  const videoRefs = useRef([]);
+  // Determine architecture once on mount
+  const [isMobile] = useState(() => window.innerWidth < 768);
+  
   const [allImages, setAllImages] = useState({});
   const [isLoaded, setIsLoaded] = useState(false);
   // Track scene index and per-scene progress (0→1) to pass to scene components
@@ -44,60 +48,78 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   const [loadProgress, setLoadProgress] = useState(0);
 
-  // Preload All Frames
+  // Preload frames or videos based on architecture
   useEffect(() => {
     let totallyLoaded = 0;
-    const isMobile = window.innerWidth < 768;
-    const frameStep = isMobile ? 3 : 1; // Load 1/3 hardware frames on mobile to slash memory
-
-    // We only wait for Scene 1 (idx 0) to "unlock" the site
-    const primaryScene = SCENES_CONFIG[0];
-    const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
     const loadedManifest = {};
     
-    // Safety Timeout: Force load after 12 seconds to prevent getting stuck
+    // Safety Timeout: Force load after 12 seconds
     const safetyTimeout = setTimeout(() => {
       console.warn("Primary loading timed out, forcing display.");
       setIsLoaded(true);
     }, 12000);
 
-    const incrementPrimaryLoad = () => {
-      totallyLoaded++;
-      setLoadProgress(Math.min(Math.round((totallyLoaded / totalPrimaryFrames) * 100), 100));
-      if (totallyLoaded >= totalPrimaryFrames && !isLoaded) {
-        clearTimeout(safetyTimeout);
-        setIsLoaded(true);
-      }
-    };
+    if (isMobile) {
+       // --- MOBILE VIDEO PRELOAD ---
+       const checkVideo = setInterval(() => {
+          const primaryVideo = videoRefs.current[0];
+          if (primaryVideo && primaryVideo.readyState >= 3) {
+             clearInterval(checkVideo);
+             clearTimeout(safetyTimeout);
+             setLoadProgress(100);
+             setIsLoaded(true);
+          } else if (primaryVideo && primaryVideo.duration) {
+             // Fake progress based on buffered data if possible
+             if (primaryVideo.buffered.length > 0) {
+               const bufferedEnd = primaryVideo.buffered.end(0);
+               setLoadProgress(Math.min(Math.round((bufferedEnd / primaryVideo.duration) * 100), 99));
+             }
+          }
+       }, 200);
 
-    SCENES_CONFIG.forEach((scene, sIdx) => {
-      const sceneImages = [];
-      const isPrimary = sIdx === 0;
+       return () => {
+         clearInterval(checkVideo);
+         clearTimeout(safetyTimeout); 
+       };
+       
+    } else {
+       // --- DESKTOP IMAGE PRELOAD ---
+       const frameStep = 1;
+       const primaryScene = SCENES_CONFIG[0];
+       const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
 
-      for (let i = 1; i <= scene.count; i += frameStep) {
-        const img = new Image();
-        const frameNumber = i.toString().padStart(4, '0');
-        
-        // If it's primary, count it towards the loading progress. If secondary, load silently.
-        if (isPrimary) {
-          img.onload = incrementPrimaryLoad;
-          img.onerror = incrementPrimaryLoad; 
-        }
-        
-        // Use the highly compressed 600px width webp frames on mobile
-        const framePath = isMobile 
-            ? `${scene.path}/mobile/frame_${frameNumber}.webp`
-            : `${scene.path}/frame_${frameNumber}.jpg`;
-            
-        img.src = framePath;
-        sceneImages.push(img);
-      }
-      loadedManifest[sIdx] = sceneImages;
-    });
+       const incrementPrimaryLoad = () => {
+         totallyLoaded++;
+         setLoadProgress(Math.min(Math.round((totallyLoaded / totalPrimaryFrames) * 100), 100));
+         if (totallyLoaded >= totalPrimaryFrames && !isLoaded) {
+           clearTimeout(safetyTimeout);
+           setIsLoaded(true);
+         }
+       };
 
-    setAllImages(loadedManifest);
-    return () => clearTimeout(safetyTimeout);
-  }, []);
+       SCENES_CONFIG.forEach((scene, sIdx) => {
+         const sceneImages = [];
+         const isPrimary = sIdx === 0;
+
+         for (let i = 1; i <= scene.count; i += frameStep) {
+           const img = new Image();
+           const frameNumber = i.toString().padStart(4, '0');
+           
+           if (isPrimary) {
+             img.onload = incrementPrimaryLoad;
+             img.onerror = incrementPrimaryLoad; 
+           }
+           
+           img.src = `${scene.path}/frame_${frameNumber}.jpg`;
+           sceneImages.push(img);
+         }
+         loadedManifest[sIdx] = sceneImages;
+       });
+
+       setAllImages(loadedManifest);
+       return () => clearTimeout(safetyTimeout);
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     if (isLoaded && onLoadComplete) {
@@ -109,10 +131,16 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   useEffect(() => {
     if (!isLoaded || !isUnlocked) return;
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d', { alpha: false });
+    let canvas, ctx, pixelRatio;
+    
+    if (!isMobile) {
+      canvas = canvasRef.current;
+      ctx = canvas.getContext('2d', { alpha: false });
+      pixelRatio = window.devicePixelRatio;
+    }
 
     const drawFrame = (sceneIdx, frameIdx, alpha = 1) => {
+      if (isMobile) return;
       const img = allImages[sceneIdx]?.[frameIdx];
       if (!img) return;
 
@@ -136,25 +164,18 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       ctx.drawImage(img, offX, offY, drawW, drawH);
     };
 
-    const isMobile = window.innerWidth < 768;
-    // Aggressive scaling: Use 1.0 (or even 0.8) on mobile to drastically cut draw time, instead of up to 1.5x
-    const pixelRatio = isMobile ? Math.min(window.devicePixelRatio, 1.0) : window.devicePixelRatio;
-
     const resize = () => {
-      canvas.width = window.innerWidth * pixelRatio;
-      canvas.height = window.innerHeight * pixelRatio;
-      
-      // Optimization: Disable image smoothing for slightly crisper look on low-res mobile canvases
-      if (isMobile) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'low';
+      if (!isMobile && canvas) {
+        canvas.width = window.innerWidth * pixelRatio;
+        canvas.height = window.innerHeight * pixelRatio;
+        drawFrame(0, 0);
       }
-      
-      drawFrame(0, 0);
     };
 
-    resize();
-    window.addEventListener('resize', resize);
+    if (!isMobile) {
+      resize();
+      window.addEventListener('resize', resize);
+    }
 
     let lastSceneIdx = -1;
     let lastFrameIdx = -1;
@@ -182,26 +203,52 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
             internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
           }
 
-          // Map internal progress to the sparse array length
-          const frameStep = isMobile ? 3 : 1;
-          const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
-          const frameIdx = Math.round(internalProgress * (sparseLength - 1));
+          // Execute Scrubbing based on Architecture
+          if (isMobile) {
+             const currentVideo = videoRefs.current[currentSceneIdx];
+             if (currentVideo && currentVideo.duration) {
+                // Ensure paused and scrub
+                if (!currentVideo.paused) currentVideo.pause();
+                currentVideo.currentTime = internalProgress * currentVideo.duration;
+             }
 
-          // Only Redraw if something changed
-          if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            drawFrame(currentSceneIdx, frameIdx);
+             // Handle opacity for all videos to allow crossfade
+             videoRefs.current.forEach((vid, idx) => {
+                if (!vid) return;
+                if (idx === currentSceneIdx) {
+                   vid.style.opacity = 1;
+                } else if (internalProgress > 0.9 && idx === currentSceneIdx + 1) {
+                   vid.style.opacity = (internalProgress - 0.9) * 10;
+                   if (vid.currentTime !== 0) vid.currentTime = 0; // Prepare incoming video
+                } else {
+                   vid.style.opacity = 0;
+                }
+             });
+             
+             lastSceneIdx = currentSceneIdx;
 
-            // Crossfade at transition
-            if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-               const fade = (internalProgress - 0.9) * 10;
-               drawFrame(currentSceneIdx + 1, 0, fade);
-            }
+          } else {
+             // ---> DESKTOP CANVAS SCENE DRAW
+             const frameStep = 1;
+             const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
+             const frameIdx = Math.round(internalProgress * (sparseLength - 1));
 
-            lastSceneIdx = currentSceneIdx;
-            lastFrameIdx = frameIdx;
+             // Only Redraw if something changed
+             if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
+               ctx.globalAlpha = 1;
+               ctx.fillStyle = 'black';
+               ctx.fillRect(0, 0, canvas.width, canvas.height);
+               drawFrame(currentSceneIdx, frameIdx);
+
+               // Crossfade at transition
+               if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+                  const fade = (internalProgress - 0.9) * 10;
+                  drawFrame(currentSceneIdx + 1, 0, fade);
+               }
+
+               lastSceneIdx = currentSceneIdx;
+               lastFrameIdx = frameIdx;
+             }
           }
 
           // Update scene progress state (drives text animations in scene components)
@@ -219,11 +266,30 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   return (
     <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
-      <canvas 
-        ref={canvasRef} 
-        className="absolute inset-0 w-full h-full block" 
-        style={{ width: '100%', height: '100%' }}
-      />
+      {!isMobile && (
+        <canvas 
+          ref={canvasRef} 
+          className="absolute inset-0 w-full h-full block" 
+          style={{ width: '100%', height: '100%' }}
+        />
+      )}
+      
+      {isMobile && (
+        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-black">
+           {SCENES_CONFIG.map((scene, idx) => (
+              <video
+                key={`vid-${scene.id}`}
+                ref={el => videoRefs.current[idx] = el}
+                src={scene.videoPath}
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ opacity: idx === 0 ? 1 : 0, transition: 'none', willChange: 'opacity' }}
+                muted
+                playsInline
+                preload={idx === 0 ? "auto" : "metadata"}
+              />
+           ))}
+        </div>
+      )}
       
       {/* Global Cinematic Filter */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />
