@@ -106,35 +106,33 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     let totallyLoaded = 0;
     const loadedManifest = {};
     
-    if (isMobile) {
-       // --- MOBILE VIDEO PRELOAD ---
-       // We create the probe once outside the interval so it can actually finish loading.
-       const probe = document.createElement('video');
-       probe.src = SCENES_CONFIG[0].mobileVideoPath;
-       probe.preload = 'auto';
-       probe.muted = true;
-       probe.setAttribute('playsinline', '');
-       probe.load();
-
-       const checkVideo = setInterval(() => {
-          if (probe.readyState >= 3) {
-             clearInterval(checkVideo);
-             setLoadProgress(100);
-             setIsLoaded(true);
-          } else {
-             // Incrementally progress while waiting
-             setLoadProgress((prev) => Math.min(prev + 2, 98));
-          }
-       }, 500);
-
-       return () => clearInterval(checkVideo);
-    }
-    
-    // Safety Timeout: Force load after 12 seconds
+    // Safety Timeout: Force load after 12 seconds to prevent permanent black screen
     const safetyTimeout = setTimeout(() => {
-      console.warn("Primary loading timed out, forcing display.");
+      console.warn("Loading timed out, forcing display.");
       setIsLoaded(true);
     }, 12000);
+
+    if (isMobile) {
+       // --- MOBILE VIDEO PRELOAD ---
+       // Instead of a fragile probe, we use a simple timer-based progression
+       // to ensure the UI unlocks. Videos will stream naturally as the user scrolls.
+       let prog = 0;
+       const interval = setInterval(() => {
+          prog += 10;
+          setLoadProgress(prog);
+          if (prog >= 100) {
+             clearInterval(interval);
+             clearTimeout(safetyTimeout);
+             setIsLoaded(true);
+          }
+       }, 150);
+
+       return () => {
+          clearInterval(interval);
+          clearTimeout(safetyTimeout);
+       };
+    }
+    
 
     // --- DESKTOP IMAGE PRELOAD ---
     const frameStep = 1;
@@ -171,7 +169,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     setAllImages(loadedManifest);
     return () => clearTimeout(safetyTimeout);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     if (isLoaded && onLoadComplete) {
