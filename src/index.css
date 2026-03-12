@@ -1,0 +1,37 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap');
+
+@theme {
+  --color-vienna-brown: #4A3B32;
+  --color-vienna-beige: #E8DCC4;
+  --color-vienna-cream: #F5EFE6;
+  --color-vienna-green: #7A8B76;
+  
+  --font-serif: "Cormorant Garamond", serif;
+  --font-sans: "Inter", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-vienna-brown);
+    color: var(--color-vienna-cream);
+    font-family: var(--font-sans);
+    @apply antialiased overflow-x-hidden selection:bg-vienna-green selection:text-white;
+    /* Prevent overscroll bounce on macOS/iOS for immersion */
+    overscroll-behavior-y: none;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif font-light tracking-wide;
+  }
+
+  @keyframes loading-bar {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+  }
+
+  .animate-loading-bar {
+    animation: loading-bar 2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+}
