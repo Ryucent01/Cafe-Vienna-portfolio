@@ -14,24 +14,23 @@ import Scene6Drinking from './scenes/Scene6Drinking';
 gsap.registerPlugin(ScrollTrigger);
 
 const SCENES_CONFIG = [
-  { id: 1, path: '/assets/frames/scene1', videoPath: '/assets/videos/1-Exterior.mp4', mobileVideoPath: '/assets/videos/mobile/1-Exterior.mp4', count: 120, Component: Scene1Exterior },
-  { id: 2, path: '/assets/frames/scene2', videoPath: '/assets/videos/2-Entering.mp4', mobileVideoPath: '/assets/videos/mobile/2-Entering.mp4', count: 120, Component: Scene2Entering },
-  { id: 3, path: '/assets/frames/scene3', videoPath: '/assets/videos/3-Coffee_blending.mp4', mobileVideoPath: '/assets/videos/mobile/3-Coffee_blending.mp4', count: 120, Component: Scene3CoffeeBlending },
-  { id: 4, path: '/assets/frames/scene4', videoPath: '/assets/videos/4-Espresso_pour.mp4', mobileVideoPath: '/assets/videos/mobile/4-Espresso_pour.mp4', count: 120, Component: Scene4EspressoPour },
-  { id: 5, path: '/assets/frames/scene5', videoPath: '/assets/videos/5-Mixing_sugar.mp4', mobileVideoPath: '/assets/videos/mobile/5-Mixing_sugar.mp4', count: 120, Component: Scene5MixingSugar },
-  { id: 6, path: '/assets/frames/scene6', videoPath: '/assets/videos/6-Drinking.mp4', mobileVideoPath: '/assets/videos/mobile/6-Drinking.mp4', count: 120, Component: Scene6Drinking },
+  { id: 1, path: '/assets/frames/scene1', mobilePath: '/assets/frames/scene1/mobile', count: 120, Component: Scene1Exterior },
+  { id: 2, path: '/assets/frames/scene2', mobilePath: '/assets/frames/scene2/mobile', count: 120, Component: Scene2Entering },
+  { id: 3, path: '/assets/frames/scene3', mobilePath: '/assets/frames/scene3/mobile', count: 120, Component: Scene3CoffeeBlending },
+  { id: 4, path: '/assets/frames/scene4', mobilePath: '/assets/frames/scene4/mobile', count: 120, Component: Scene4EspressoPour },
+  { id: 5, path: '/assets/frames/scene5', mobilePath: '/assets/frames/scene5/mobile', count: 120, Component: Scene5MixingSugar },
+  { id: 6, path: '/assets/frames/scene6', mobilePath: '/assets/frames/scene6/mobile', count: 120, Component: Scene6Drinking },
 ];
 
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
-  const videoRefs = useRef([]);
+  
   // Determine architecture once on mount
   const [isMobile] = useState(() => window.innerWidth < 768);
   
   const [allImages, setAllImages] = useState({});
   const [isLoaded, setIsLoaded] = useState(false);
-  // Track scene index and per-scene progress (0→1) to pass to scene components
   const [activeScene, setActiveScene] = useState(0);
   const [sceneProgress, setSceneProgress] = useState(0);
   const { unlockAudio, isUnlocked } = useContext(MusicContext);
@@ -49,74 +48,50 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   const [loadProgress, setLoadProgress] = useState(0);
 
-  // Preload frames or videos based on architecture
+  // --- STRICT PRELOADER ---
   useEffect(() => {
     let totallyLoaded = 0;
     const loadedManifest = {};
+    const frameStep = isMobile ? 3 : 1;
     
-    // Safety Timeout: Force load after 12 seconds to prevent permanent black screen
-    const safetyTimeout = setTimeout(() => {
-      console.warn("Loading timed out, forcing display.");
-      setIsLoaded(true);
-    }, 12000);
+    // Calculate total frames to wait for
+    const totalFramesAcrossAllScenes = SCENES_CONFIG.reduce((acc, scene) => {
+      return acc + Math.ceil(scene.count / frameStep);
+    }, 0);
 
-    if (isMobile) {
-       // --- MOBILE VIDEO PRELOAD ---
-       // Instead of a fragile probe, we use a simple timer-based progression
-       // to ensure the UI unlocks. Videos will stream naturally as the user scrolls.
-       let prog = 0;
-       const interval = setInterval(() => {
-          prog += 10;
-          setLoadProgress(prog);
-          if (prog >= 100) {
-             clearInterval(interval);
-             clearTimeout(safetyTimeout);
-             setIsLoaded(true);
-          }
-       }, 150);
+    // Initial load progress
+    setLoadProgress(1);
 
-       return () => {
-          clearInterval(interval);
-          clearTimeout(safetyTimeout);
-       };
-    }
-    
-
-    // --- DESKTOP IMAGE PRELOAD ---
-    const frameStep = 1;
-    const primaryScene = SCENES_CONFIG[0];
-    const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
-
-    const incrementPrimaryLoad = () => {
+    const incrementLoad = () => {
       totallyLoaded++;
-      setLoadProgress(Math.min(Math.round((totallyLoaded / totalPrimaryFrames) * 100), 100));
-      if (totallyLoaded >= totalPrimaryFrames && !isLoaded) {
-        clearTimeout(safetyTimeout);
-        setIsLoaded(true);
+      const progress = Math.min(Math.round((totallyLoaded / totalFramesAcrossAllScenes) * 100), 100);
+      setLoadProgress(progress);
+      
+      if (totallyLoaded >= totalFramesAcrossAllScenes) {
+        setAllImages(loadedManifest);
+        // Add a slight delay for state settling
+        setTimeout(() => setIsLoaded(true), 100);
       }
     };
 
     SCENES_CONFIG.forEach((scene, sIdx) => {
       const sceneImages = [];
-      const isPrimary = sIdx === 0;
+      const basePath = isMobile ? scene.mobilePath : scene.path;
+      const extension = isMobile ? 'webp' : 'jpg';
 
       for (let i = 1; i <= scene.count; i += frameStep) {
         const img = new Image();
         const frameNumber = i.toString().padStart(4, '0');
         
-        if (isPrimary) {
-          img.onload = incrementPrimaryLoad;
-          img.onerror = incrementPrimaryLoad; 
-        }
+        img.onload = incrementLoad;
+        img.onerror = incrementLoad; // Skip missing frames to prevent preloader stall
+        img.src = `${basePath}/frame_${frameNumber}.${extension}`;
         
-        img.src = `${scene.path}/frame_${frameNumber}.jpg`;
         sceneImages.push(img);
       }
       loadedManifest[sIdx] = sceneImages;
     });
 
-    setAllImages(loadedManifest);
-    return () => clearTimeout(safetyTimeout);
   }, [isMobile]);
 
   useEffect(() => {
@@ -125,37 +100,16 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     }
   }, [isLoaded, onLoadComplete]);
 
-  // Unlock Video Decoders on Mobile (Play/Pause hack to allow scrubbing)
-  useEffect(() => {
-    if (isMobile && isUnlocked && videoRefs.current.length > 0) {
-      videoRefs.current.forEach(vid => {
-        if (vid) {
-          vid.play().then(() => vid.pause()).catch(() => {});
-        }
-      });
-    }
-  }, [isMobile, isUnlocked]);
-
   // GSAP Orchestration
   useEffect(() => {
     if (!isLoaded || !isUnlocked) return;
-    
-    // Force a ScrollTrigger refresh for mobile pinning
-    if (isMobile) {
-      setTimeout(() => ScrollTrigger.refresh(), 100);
-    }
 
-    let canvas, ctx, pixelRatio;
-    
-    if (!isMobile) {
-      canvas = canvasRef.current;
-      if (!canvas) return; // Desktop safety
-      ctx = canvas.getContext('2d', { alpha: false });
-      pixelRatio = window.devicePixelRatio;
-    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const pixelRatio = isMobile ? 1.0 : window.devicePixelRatio;
 
     const drawFrame = (sceneIdx, frameIdx, alpha = 1) => {
-      if (isMobile) return; // Safety
       const img = allImages[sceneIdx]?.[frameIdx];
       if (!img) return;
 
@@ -179,148 +133,77 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       ctx.drawImage(img, offX, offY, drawW, drawH);
     };
 
-    const resize = () => {
-      if (canvas) {
-        canvas.width = window.innerWidth * pixelRatio;
-        canvas.height = window.innerHeight * pixelRatio;
-        drawFrame(0, 0);
+    const updateCinematic = (totalProgress) => {
+      const firstScenesWeight = 15/24;
+      let currentSceneIdx, internalProgress;
+
+      if (totalProgress <= firstScenesWeight) {
+        const p = totalProgress / firstScenesWeight;
+        const rawIdx = p * 5;
+        currentSceneIdx = Math.min(Math.floor(rawIdx), 4);
+        internalProgress = rawIdx - currentSceneIdx;
+      } else {
+        currentSceneIdx = 5;
+        internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
       }
+
+      const frameStep = isMobile ? 3 : 1;
+      const sceneFramesCount = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
+      const frameIdx = Math.round(internalProgress * (sceneFramesCount - 1));
+
+      // Clear and Draw
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawFrame(currentSceneIdx, frameIdx);
+
+      // Handle Crossfade logic
+      if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+         const fade = (internalProgress - 0.9) * 10;
+         drawFrame(currentSceneIdx + 1, 0, fade);
+      }
+
+      setActiveScene(currentSceneIdx);
+      setSceneProgress(internalProgress);
+    };
+
+    const resize = () => {
+      canvas.width = window.innerWidth * pixelRatio;
+      canvas.height = window.innerHeight * pixelRatio;
+      const p = ScrollTrigger.getById('master-cinematic')?.progress || 0;
+      updateCinematic(p);
     };
 
     resize();
     window.addEventListener('resize', resize);
 
-    let lastSceneIdx = -1;
-    let lastFrameIdx = -1;
-
-    // Master Timeline for Canvas + Progress Tracking
     const masterTl = gsap.timeline({
       scrollTrigger: {
+        id: 'master-cinematic',
         trigger: masterRef.current,
         start: 'top top',
-        end: '+=2400%', // Weighted: first 5 scenes * 300% + last scene * 900%
+        end: '+=2400%', 
         pin: true,
-        scrub: 0.5,
-        onUpdate: (self) => {
-          const totalProgress = self.progress;
-          const firstScenesWeight = 15/24;
-          let currentSceneIdx, internalProgress;
-
-          if (totalProgress <= firstScenesWeight) {
-            const p = totalProgress / firstScenesWeight;
-            const rawIdx = p * 5;
-            currentSceneIdx = Math.min(Math.floor(rawIdx), 4);
-            internalProgress = rawIdx - currentSceneIdx;
-          } else {
-            currentSceneIdx = 5;
-            internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
-          }
-
-          // Execute Scrubbing based on Architecture
-          if (isMobile) {
-             // ---> MOBILE VIDEO STACK SCRUB
-             const currentVideo = videoRefs.current[currentSceneIdx];
-             if (currentVideo && !isNaN(currentVideo.duration) && currentVideo.duration > 0) {
-                // Manual Scrubbing: Map 0-1 progress to video duration
-                // We use All-Intra videos for buttery smooth seeking
-                try {
-                   currentVideo.currentTime = internalProgress * currentVideo.duration;
-                } catch (e) {
-                   // Fallback for strict mobile browsers
-                }
-             }
-
-             // Handle visibility and crossfades exactly like desktop
-             videoRefs.current.forEach((vid, idx) => {
-                if (!vid) return;
-                if (idx === currentSceneIdx) {
-                   vid.style.opacity = idx === 5 ? (1 - backdropBlur/30) : 1;
-                   vid.style.visibility = 'visible';
-                   vid.style.zIndex = '5';
-                } else if (internalProgress > 0.9 && idx === currentSceneIdx + 1) {
-                   // Transition fade
-                   vid.style.opacity = (internalProgress - 0.9) * 10;
-                   vid.style.visibility = 'visible';
-                   vid.style.zIndex = '4';
-                } else {
-                   vid.style.opacity = 0;
-                   vid.style.visibility = 'hidden';
-                   vid.style.zIndex = '1';
-                }
-             });
-             
-             lastSceneIdx = currentSceneIdx;
-
-          } else {
-             // ---> DESKTOP CANVAS SCENE DRAW
-             const frameStep = 1;
-             const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
-             const frameIdx = Math.round(internalProgress * (sparseLength - 1));
-
-             // Only Redraw if something changed
-             if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
-               ctx.globalAlpha = 1;
-               ctx.fillStyle = 'black';
-               ctx.fillRect(0, 0, canvas.width, canvas.height);
-               drawFrame(currentSceneIdx, frameIdx);
-
-               // Crossfade at transition
-               if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-                  const fade = (internalProgress - 0.9) * 10;
-                  drawFrame(currentSceneIdx + 1, 0, fade);
-               }
-
-               lastSceneIdx = currentSceneIdx;
-               lastFrameIdx = frameIdx;
-             }
-          }
-
-          // Update scene progress state (drives text animations in scene components)
-          setActiveScene(currentSceneIdx);
-          setSceneProgress(internalProgress);
-        }
+        scrub: 0.2, // Slightly smoother scrub for premium feel
+        onUpdate: (self) => updateCinematic(self.progress)
       }
     });
 
     return () => {
       window.removeEventListener('resize', resize);
       masterTl.kill();
+      const st = ScrollTrigger.getById('master-cinematic');
+      if (st) st.kill();
     };
-  }, [isLoaded, allImages, isUnlocked]);
+  }, [isLoaded, allImages, isUnlocked, isMobile]);
 
   return (
     <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
-      {!isMobile && (
-        <canvas 
-          ref={canvasRef} 
-          className="absolute inset-0 w-full h-full block" 
-          style={{ width: '100%', height: '100%' }}
-        />
-      )}
-      
-      {isMobile && (
-        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-black">
-           {SCENES_CONFIG.map((scene, idx) => (
-              <video
-                key={`vid-${scene.id}`}
-                ref={el => videoRefs.current[idx] = el}
-                src={scene.mobileVideoPath}
-                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
-                style={{ 
-                   opacity: idx === 0 ? 1 : 0, 
-                   visibility: idx === 0 ? 'visible' : 'hidden',
-                }}
-                muted
-                playsInline
-                preload="auto"
-                onLoadedMetadata={(e) => {
-                   // Priming: Jump slightly off 0 to force first frame paint on mobile
-                   e.target.currentTime = 0.01;
-                }}
-              />
-           ))}
-        </div>
-      )}
+      <canvas 
+        ref={canvasRef} 
+        className="absolute inset-0 w-full h-full block" 
+        style={{ width: '100%', height: '100%' }}
+      />
       
       {/* Global Cinematic Filter */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />
@@ -331,7 +214,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         style={{ 
           backdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
           WebkitBackdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
-          backgroundColor: isMobile ? `rgba(255,255,255,${bgOverlayAlpha * 0.8})` : `rgba(255,255,255,${bgOverlayAlpha.toFixed(3)})`,
+          backgroundColor: `rgba(255,255,255,${bgOverlayAlpha.toFixed(3)})`,
         }}
       />
 
