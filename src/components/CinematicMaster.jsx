@@ -114,43 +114,46 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     
     // Safety Timeout: Force load after 12 seconds
     const safetyTimeout = setTimeout(() => {
-       // --- DESKTOP IMAGE PRELOAD ---
-       const frameStep = 1;
-       const primaryScene = SCENES_CONFIG[0];
-       const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
+      console.warn("Primary loading timed out, forcing display.");
+      setIsLoaded(true);
+    }, 12000);
 
-       const incrementPrimaryLoad = () => {
-         totallyLoaded++;
-         setLoadProgress(Math.min(Math.round((totallyLoaded / totalPrimaryFrames) * 100), 100));
-         if (totallyLoaded >= totalPrimaryFrames && !isLoaded) {
-           clearTimeout(safetyTimeout);
-           setIsLoaded(true);
-         }
-       };
+    // --- DESKTOP IMAGE PRELOAD ---
+    const frameStep = 1;
+    const primaryScene = SCENES_CONFIG[0];
+    const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
 
-       SCENES_CONFIG.forEach((scene, sIdx) => {
-         const sceneImages = [];
-         const isPrimary = sIdx === 0;
+    const incrementPrimaryLoad = () => {
+      totallyLoaded++;
+      setLoadProgress(Math.min(Math.round((totallyLoaded / totalPrimaryFrames) * 100), 100));
+      if (totallyLoaded >= totalPrimaryFrames && !isLoaded) {
+        clearTimeout(safetyTimeout);
+        setIsLoaded(true);
+      }
+    };
 
-         for (let i = 1; i <= scene.count; i += frameStep) {
-           const img = new Image();
-           const frameNumber = i.toString().padStart(4, '0');
-           
-           if (isPrimary) {
-             img.onload = incrementPrimaryLoad;
-             img.onerror = incrementPrimaryLoad; 
-           }
-           
-           img.src = `${scene.path}/frame_${frameNumber}.jpg`;
-           sceneImages.push(img);
-         }
-         loadedManifest[sIdx] = sceneImages;
-       });
+    SCENES_CONFIG.forEach((scene, sIdx) => {
+      const sceneImages = [];
+      const isPrimary = sIdx === 0;
 
-       setAllImages(loadedManifest);
-       return () => clearTimeout(safetyTimeout);
-    }
-  }, [isMobile]);
+      for (let i = 1; i <= scene.count; i += frameStep) {
+        const img = new Image();
+        const frameNumber = i.toString().padStart(4, '0');
+        
+        if (isPrimary) {
+          img.onload = incrementPrimaryLoad;
+          img.onerror = incrementPrimaryLoad; 
+        }
+        
+        img.src = `${scene.path}/frame_${frameNumber}.jpg`;
+        sceneImages.push(img);
+      }
+      loadedManifest[sIdx] = sceneImages;
+    });
+
+    setAllImages(loadedManifest);
+    return () => clearTimeout(safetyTimeout);
+  }, []);
 
   useEffect(() => {
     if (isLoaded && onLoadComplete) {
