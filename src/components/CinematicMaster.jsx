@@ -125,17 +125,37 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     }
   }, [isLoaded, onLoadComplete]);
 
+  // Unlock Video Decoders on Mobile (Play/Pause hack to allow scrubbing)
+  useEffect(() => {
+    if (isMobile && isUnlocked && videoRefs.current.length > 0) {
+      videoRefs.current.forEach(vid => {
+        if (vid) {
+          vid.play().then(() => vid.pause()).catch(() => {});
+        }
+      });
+    }
+  }, [isMobile, isUnlocked]);
+
   // GSAP Orchestration
   useEffect(() => {
-    if (isMobile || !isLoaded || !isUnlocked) return;
+    if (!isLoaded || !isUnlocked) return;
+    
+    // Force a ScrollTrigger refresh for mobile pinning
+    if (isMobile) {
+      setTimeout(() => ScrollTrigger.refresh(), 100);
+    }
 
     let canvas, ctx, pixelRatio;
     
-    canvas = canvasRef.current;
-    ctx = canvas.getContext('2d', { alpha: false });
-    pixelRatio = window.devicePixelRatio;
+    if (!isMobile) {
+      canvas = canvasRef.current;
+      if (!canvas) return; // Desktop safety
+      ctx = canvas.getContext('2d', { alpha: false });
+      pixelRatio = window.devicePixelRatio;
+    }
 
     const drawFrame = (sceneIdx, frameIdx, alpha = 1) => {
+      if (isMobile) return; // Safety
       const img = allImages[sceneIdx]?.[frameIdx];
       if (!img) return;
 
@@ -200,25 +220,32 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
           if (isMobile) {
              // ---> MOBILE VIDEO STACK SCRUB
              const currentVideo = videoRefs.current[currentSceneIdx];
-             if (currentVideo && currentVideo.duration) {
+             if (currentVideo && !isNaN(currentVideo.duration) && currentVideo.duration > 0) {
                 // Manual Scrubbing: Map 0-1 progress to video duration
-                // Our All-Intra videos make this buttery smooth
-                currentVideo.currentTime = internalProgress * currentVideo.duration;
+                // We use All-Intra videos for buttery smooth seeking
+                try {
+                   currentVideo.currentTime = internalProgress * currentVideo.duration;
+                } catch (e) {
+                   // Fallback for strict mobile browsers
+                }
              }
 
              // Handle visibility and crossfades exactly like desktop
              videoRefs.current.forEach((vid, idx) => {
                 if (!vid) return;
                 if (idx === currentSceneIdx) {
-                   vid.style.opacity = 1;
+                   vid.style.opacity = idx === 5 ? (1 - backdropBlur/30) : 1;
                    vid.style.visibility = 'visible';
+                   vid.style.zIndex = '5';
                 } else if (internalProgress > 0.9 && idx === currentSceneIdx + 1) {
                    // Transition fade
                    vid.style.opacity = (internalProgress - 0.9) * 10;
                    vid.style.visibility = 'visible';
+                   vid.style.zIndex = '4';
                 } else {
                    vid.style.opacity = 0;
                    vid.style.visibility = 'hidden';
+                   vid.style.zIndex = '1';
                 }
              });
              
