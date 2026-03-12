@@ -14,12 +14,12 @@ import Scene6Drinking from './scenes/Scene6Drinking';
 gsap.registerPlugin(ScrollTrigger);
 
 const SCENES_CONFIG = [
-  { id: 1, path: '/assets/frames/scene1', videoPath: '/assets/videos/1-Exterior.mp4', count: 120, Component: Scene1Exterior },
-  { id: 2, path: '/assets/frames/scene2', videoPath: '/assets/videos/2-Entering.mp4', count: 120, Component: Scene2Entering },
-  { id: 3, path: '/assets/frames/scene3', videoPath: '/assets/videos/3-Coffee_blending.mp4', count: 120, Component: Scene3CoffeeBlending },
-  { id: 4, path: '/assets/frames/scene4', videoPath: '/assets/videos/4-Espresso_pour.mp4', count: 120, Component: Scene4EspressoPour },
-  { id: 5, path: '/assets/frames/scene5', videoPath: '/assets/videos/5-Mixing_sugar.mp4', count: 120, Component: Scene5MixingSugar },
-  { id: 6, path: '/assets/frames/scene6', videoPath: '/assets/videos/6-Drinking.mp4', count: 120, Component: Scene6Drinking },
+  { id: 1, path: '/assets/frames/scene1', videoPath: '/assets/videos/1-Exterior.mp4', mobileVideoPath: '/assets/videos/mobile/1-Exterior.mp4', count: 120, Component: Scene1Exterior },
+  { id: 2, path: '/assets/frames/scene2', videoPath: '/assets/videos/2-Entering.mp4', mobileVideoPath: '/assets/videos/mobile/2-Entering.mp4', count: 120, Component: Scene2Entering },
+  { id: 3, path: '/assets/frames/scene3', videoPath: '/assets/videos/3-Coffee_blending.mp4', mobileVideoPath: '/assets/videos/mobile/3-Coffee_blending.mp4', count: 120, Component: Scene3CoffeeBlending },
+  { id: 4, path: '/assets/frames/scene4', videoPath: '/assets/videos/4-Espresso_pour.mp4', mobileVideoPath: '/assets/videos/mobile/4-Espresso_pour.mp4', count: 120, Component: Scene4EspressoPour },
+  { id: 5, path: '/assets/frames/scene5', videoPath: '/assets/videos/5-Mixing_sugar.mp4', mobileVideoPath: '/assets/videos/mobile/5-Mixing_sugar.mp4', count: 120, Component: Scene5MixingSugar },
+  { id: 6, path: '/assets/frames/scene6', videoPath: '/assets/videos/6-Drinking.mp4', mobileVideoPath: '/assets/videos/mobile/6-Drinking.mp4', count: 120, Component: Scene6Drinking },
 ];
 
 const MobileScene = ({ scene, index, isLoaded, isUnlocked }) => {
@@ -27,10 +27,11 @@ const MobileScene = ({ scene, index, isLoaded, isUnlocked }) => {
   const videoRef = useRef(null);
   const [progress, setProgress] = useState(index === 0 ? 0 : -1);
 
-  // Unlock AutoPlay strictly on user interaction (Apple Low Power Mode bypass)
+  // No auto-play logic needed for manual scrubbing
   useEffect(() => {
     if (isUnlocked && index === 0 && videoRef.current) {
-      videoRef.current.play().catch(() => {});
+      // Just ensure it's paused for scrubbing
+      videoRef.current.pause();
     }
   }, [isUnlocked, index]);
 
@@ -44,11 +45,13 @@ const MobileScene = ({ scene, index, isLoaded, isUnlocked }) => {
       pin: true,
       scrub: true,
       onUpdate: (self) => {
-        setProgress(self.progress);
-        if (self.isActive && videoRef.current && videoRef.current.paused) {
-           videoRef.current.play().catch(() => {});
-        } else if (!self.isActive && videoRef.current && !videoRef.current.paused) {
-           videoRef.current.pause();
+        const p = self.progress;
+        setProgress(p);
+        
+        if (videoRef.current && videoRef.current.duration) {
+          // SCRUBBING: Map 0-1 progress to video duration
+          // Since we use All-Intra (keyframe-every-frame), this will be buttery smooth
+          videoRef.current.currentTime = p * videoRef.current.duration;
         }
       }
     });
@@ -60,9 +63,9 @@ const MobileScene = ({ scene, index, isLoaded, isUnlocked }) => {
     <div ref={sectionRef} className="relative w-full h-[100vh] overflow-hidden bg-black top-0">
       <video
         ref={videoRef}
-        src={scene.videoPath}
-        className="absolute inset-0 w-full h-full object-cover opacity-60"
-        loop muted playsInline
+        src={scene.mobileVideoPath}
+        className="absolute inset-0 w-full h-full object-cover opacity-80"
+        preload="auto" muted playsInline
       />
       <div className="absolute inset-0 z-20 pointer-events-none">
         <scene.Component index={index} parentRef={sectionRef} isLoaded={isLoaded} progress={progress} />
@@ -104,12 +107,27 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     const loadedManifest = {};
     
     if (isMobile) {
-       // --- MOBILE INSTANT LOAD ---
-       // Mobile browsers heavily throttle video metadata/preloads to save cellular data,
-       // causing our preloader to stall. We bypass the preloader screen on mobile instantly.
-       setLoadProgress(100);
-       setIsLoaded(true);
-       return;
+       // --- MOBILE VIDEO PRELOAD ---
+       // We need to wait for at least the first video to be ready
+       const checkVideo = setInterval(() => {
+          const probe = document.createElement('video');
+          probe.src = SCENES_CONFIG[0].mobileVideoPath;
+          probe.preload = 'auto';
+          probe.muted = true;
+          probe.setAttribute('playsinline', '');
+          probe.load();
+          
+          if (probe.readyState >= 3) {
+             clearInterval(checkVideo);
+             setLoadProgress(100);
+             setIsLoaded(true);
+          } else {
+             // Incrementally progress while waiting
+             setLoadProgress((prev) => Math.min(prev + 2, 98));
+          }
+       }, 500);
+
+       return () => clearInterval(checkVideo);
     }
     
     // Safety Timeout: Force load after 12 seconds
