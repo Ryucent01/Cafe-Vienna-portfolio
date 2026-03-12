@@ -83,7 +83,12 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
           img.onerror = incrementPrimaryLoad; 
         }
         
-        img.src = `${scene.path}/frame_${frameNumber}.jpg`;
+        // Use the highly compressed 600px width webp frames on mobile
+        const framePath = isMobile 
+            ? `${scene.path}/mobile/frame_${frameNumber}.webp`
+            : `${scene.path}/frame_${frameNumber}.jpg`;
+            
+        img.src = framePath;
         sceneImages.push(img);
       }
       loadedManifest[sIdx] = sceneImages;
