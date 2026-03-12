@@ -108,15 +108,15 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     
     if (isMobile) {
        // --- MOBILE VIDEO PRELOAD ---
-       // We need to wait for at least the first video to be ready
+       // We create the probe once outside the interval so it can actually finish loading.
+       const probe = document.createElement('video');
+       probe.src = SCENES_CONFIG[0].mobileVideoPath;
+       probe.preload = 'auto';
+       probe.muted = true;
+       probe.setAttribute('playsinline', '');
+       probe.load();
+
        const checkVideo = setInterval(() => {
-          const probe = document.createElement('video');
-          probe.src = SCENES_CONFIG[0].mobileVideoPath;
-          probe.preload = 'auto';
-          probe.muted = true;
-          probe.setAttribute('playsinline', '');
-          probe.load();
-          
           if (probe.readyState >= 3) {
              clearInterval(checkVideo);
              setLoadProgress(100);
