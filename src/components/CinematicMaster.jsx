@@ -211,14 +211,14 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
                 if (!vid) return;
                 if (idx === currentSceneIdx) {
                    vid.style.opacity = 1;
-                   vid.style.display = 'block';
+                   vid.style.visibility = 'visible';
                 } else if (internalProgress > 0.9 && idx === currentSceneIdx + 1) {
                    // Transition fade
                    vid.style.opacity = (internalProgress - 0.9) * 10;
-                   vid.style.display = 'block';
+                   vid.style.visibility = 'visible';
                 } else {
                    vid.style.opacity = 0;
-                   vid.style.display = 'none';
+                   vid.style.visibility = 'hidden';
                 }
              });
              
@@ -278,15 +278,18 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
                 key={`vid-${scene.id}`}
                 ref={el => videoRefs.current[idx] = el}
                 src={scene.mobileVideoPath}
-                className="absolute inset-0 w-full h-full object-cover"
+                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
                 style={{ 
-                   opacity: idx === 0 ? 0.8 : 0, 
-                   display: idx === 0 ? 'block' : 'none',
-                   transition: 'opacity 0.3s ease-out' 
+                   opacity: idx === 0 ? 1 : 0, 
+                   visibility: idx === 0 ? 'visible' : 'hidden',
                 }}
                 muted
                 playsInline
                 preload="auto"
+                onLoadedMetadata={(e) => {
+                   // Priming: Jump slightly off 0 to force first frame paint on mobile
+                   e.target.currentTime = 0.01;
+                }}
               />
            ))}
         </div>
