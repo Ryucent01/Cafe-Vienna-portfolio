@@ -50,19 +50,20 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     const isMobile = window.innerWidth < 768;
     const frameStep = isMobile ? 3 : 1; // Load 1/3 hardware frames on mobile to slash memory
 
-    const totalFrames = SCENES_CONFIG.reduce((acc, s) => acc + Math.ceil(s.count / frameStep), 0);
-    const loadedManifest = {};
-
-    // Safety Timeout: Force load after 20 seconds to prevent getting stuck
+    // We only wait for Scene 1 (idx 0) to "unlock" the site
+    const primaryScene = SCENES_CONFIG[0];
+    const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
+    
+    // Safety Timeout: Force load after 12 seconds to prevent getting stuck
     const safetyTimeout = setTimeout(() => {
-      console.warn("Loading timed out, forcing display.");
+      console.warn("Primary loading timed out, forcing display.");
       setIsLoaded(true);
-    }, 20000);
+    }, 12000);
 
-    const incrementLoad = () => {
+    const incrementPrimaryLoad = () => {
       totallyLoaded++;
-      setLoadProgress(Math.round((totallyLoaded / totalFrames) * 100));
-      if (totallyLoaded >= totalFrames) {
+      setLoadProgress(Math.min(Math.round((totallyLoaded / totalPrimaryFrames) * 100), 100));
+      if (totallyLoaded >= totalPrimaryFrames && !isLoaded) {
         clearTimeout(safetyTimeout);
         setIsLoaded(true);
       }
@@ -70,12 +71,19 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     SCENES_CONFIG.forEach((scene, sIdx) => {
       const sceneImages = [];
+      const isPrimary = sIdx === 0;
+
       for (let i = 1; i <= scene.count; i += frameStep) {
         const img = new Image();
         const frameNumber = i.toString().padStart(4, '0');
+        
+        // If it's primary, count it towards the loading progress. If secondary, load silently.
+        if (isPrimary) {
+          img.onload = incrementPrimaryLoad;
+          img.onerror = incrementPrimaryLoad; 
+        }
+        
         img.src = `${scene.path}/frame_${frameNumber}.jpg`;
-        img.onload = incrementLoad;
-        img.onerror = incrementLoad; // Proceed even on error
         sceneImages.push(img);
       }
       loadedManifest[sIdx] = sceneImages;
@@ -123,7 +131,8 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     };
 
     const isMobile = window.innerWidth < 768;
-    const pixelRatio = isMobile ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio;
+    // Aggressive scaling: Use 1.0 (or even 0.8) on mobile to drastically cut draw time, instead of up to 1.5x
+    const pixelRatio = isMobile ? Math.min(window.devicePixelRatio, 1.0) : window.devicePixelRatio;
 
     const resize = () => {
       canvas.width = window.innerWidth * pixelRatio;
