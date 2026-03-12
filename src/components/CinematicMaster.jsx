@@ -53,6 +53,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     // We only wait for Scene 1 (idx 0) to "unlock" the site
     const primaryScene = SCENES_CONFIG[0];
     const totalPrimaryFrames = Math.ceil(primaryScene.count / frameStep);
+    const loadedManifest = {};
     
     // Safety Timeout: Force load after 12 seconds to prevent getting stuck
     const safetyTimeout = setTimeout(() => {
