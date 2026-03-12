@@ -29,13 +29,13 @@ videos.forEach((video) => {
   console.log(`Processing: ${video}...`);
   
   try {
-    // -g 1: Keyframe every frame
-    // -vf scale=720:-1: Downscale to 720p width for mobile speed
+    // -g 1: Keyframe every frame (All-Intra)
+    // -vf scale=720:-2: Safe scaling (ensures even dimensions)
     // -bf 0: No B-frames for faster seeking
-    // -tune fastdecode: Optimize for playback/seek speed
-    // -crf 20: High quality (All-Intra needs more bitrate, so lower CRF is better)
-    const command = `ffmpeg -i "${inputPath}" -vf "scale=720:-1" -g 1 -bf 0 -c:v libx264 -crf 20 -tune fastdecode -an -y "${outputPath}"`;
+    // -pix_fmt yuv420p: Best compatibility for mobile browsers
+    const command = `ffmpeg -i "${inputPath}" -vf "scale=720:-2" -g 1 -bf 0 -c:v libx264 -crf 20 -pix_fmt yuv420p -tune fastdecode -an -y "${outputPath}"`;
     
+    console.log(`Running: ${command}`);
     execSync(command, { stdio: 'inherit' });
     console.log(`Finished: ${video}`);
   } catch (error) {

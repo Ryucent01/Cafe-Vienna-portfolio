@@ -22,59 +22,6 @@ const SCENES_CONFIG = [
   { id: 6, path: '/assets/frames/scene6', videoPath: '/assets/videos/6-Drinking.mp4', mobileVideoPath: '/assets/videos/mobile/6-Drinking.mp4', count: 120, Component: Scene6Drinking },
 ];
 
-const MobileScene = ({ scene, index, isLoaded, isUnlocked }) => {
-  const sectionRef = useRef(null);
-  const videoRef = useRef(null);
-  const [progress, setProgress] = useState(index === 0 ? 0 : -1);
-
-  // No auto-play logic needed for manual scrubbing
-  useEffect(() => {
-    if (isUnlocked && index === 0 && videoRef.current) {
-      // Just ensure it's paused for scrubbing
-      videoRef.current.pause();
-    }
-  }, [isUnlocked, index]);
-
-  // Give each segment a 100vh scroll pin to let text animate perfectly
-  useEffect(() => {
-    if (!isUnlocked) return;
-    const st = ScrollTrigger.create({
-      trigger: sectionRef.current,
-      start: 'top top',
-      end: '+=100%', 
-      pin: true,
-      scrub: true,
-      onUpdate: (self) => {
-        const p = self.progress;
-        setProgress(p);
-        
-        if (videoRef.current && videoRef.current.duration) {
-          // SCRUBBING: Map 0-1 progress to video duration
-          // Since we use All-Intra (keyframe-every-frame), this will be buttery smooth
-          videoRef.current.currentTime = p * videoRef.current.duration;
-        }
-      }
-    });
-
-    return () => st.kill();
-  }, [isUnlocked]);
-
-  return (
-    <div ref={sectionRef} className="relative w-full h-[100vh] overflow-hidden bg-black top-0">
-      <video
-        ref={videoRef}
-        src={scene.mobileVideoPath}
-        className="absolute inset-0 w-full h-full object-cover opacity-80"
-        preload="auto" muted playsInline
-      />
-      <div className="absolute inset-0 z-20 pointer-events-none">
-        <scene.Component index={index} parentRef={sectionRef} isLoaded={isLoaded} progress={progress} />
-      </div>
-    </div>
-  );
-};
-
-
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
@@ -88,6 +35,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const [activeScene, setActiveScene] = useState(0);
   const [sceneProgress, setSceneProgress] = useState(0);
   const { unlockAudio, isUnlocked } = useContext(MusicContext);
+
 
   useEffect(() => {
     if (isUnlocked && onJourneyStart) {
@@ -249,26 +197,55 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
           }
 
           // Execute Scrubbing based on Architecture
-          // ---> DESKTOP CANVAS SCENE DRAW
-          const frameStep = 1;
-          const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
-          const frameIdx = Math.round(internalProgress * (sparseLength - 1));
+          if (isMobile) {
+             // ---> MOBILE VIDEO STACK SCRUB
+             const currentVideo = videoRefs.current[currentSceneIdx];
+             if (currentVideo && currentVideo.duration) {
+                // Manual Scrubbing: Map 0-1 progress to video duration
+                // Our All-Intra videos make this buttery smooth
+                currentVideo.currentTime = internalProgress * currentVideo.duration;
+             }
 
-          // Only Redraw if something changed
-          if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            drawFrame(currentSceneIdx, frameIdx);
+             // Handle visibility and crossfades exactly like desktop
+             videoRefs.current.forEach((vid, idx) => {
+                if (!vid) return;
+                if (idx === currentSceneIdx) {
+                   vid.style.opacity = 1;
+                   vid.style.display = 'block';
+                } else if (internalProgress > 0.9 && idx === currentSceneIdx + 1) {
+                   // Transition fade
+                   vid.style.opacity = (internalProgress - 0.9) * 10;
+                   vid.style.display = 'block';
+                } else {
+                   vid.style.opacity = 0;
+                   vid.style.display = 'none';
+                }
+             });
+             
+             lastSceneIdx = currentSceneIdx;
 
-            // Crossfade at transition
-            if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-               const fade = (internalProgress - 0.9) * 10;
-               drawFrame(currentSceneIdx + 1, 0, fade);
-            }
+          } else {
+             // ---> DESKTOP CANVAS SCENE DRAW
+             const frameStep = 1;
+             const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
+             const frameIdx = Math.round(internalProgress * (sparseLength - 1));
 
-            lastSceneIdx = currentSceneIdx;
-            lastFrameIdx = frameIdx;
+             // Only Redraw if something changed
+             if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
+               ctx.globalAlpha = 1;
+               ctx.fillStyle = 'black';
+               ctx.fillRect(0, 0, canvas.width, canvas.height);
+               drawFrame(currentSceneIdx, frameIdx);
+
+               // Crossfade at transition
+               if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+                  const fade = (internalProgress - 0.9) * 10;
+                  drawFrame(currentSceneIdx + 1, 0, fade);
+               }
+
+               lastSceneIdx = currentSceneIdx;
+               lastFrameIdx = frameIdx;
+             }
           }
 
           // Update scene progress state (drives text animations in scene components)
@@ -285,7 +262,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   }, [isLoaded, allImages, isUnlocked]);
 
   return (
-    <div ref={isMobile ? null : masterRef} className={`relative w-full bg-black overflow-hidden cinematic-master-container ${isMobile ? 'h-auto pb-32' : 'h-screen'}`}>
+    <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
       {!isMobile && (
         <canvas 
           ref={canvasRef} 
@@ -295,65 +272,66 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       )}
       
       {isMobile && (
-        <div className="relative w-full z-0 bg-black flex flex-col">
+        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-black">
            {SCENES_CONFIG.map((scene, idx) => (
-              <MobileScene 
-                 key={scene.id} 
-                 scene={scene} 
-                 index={idx}
-                 isLoaded={isLoaded}
-                 isUnlocked={isUnlocked}
+              <video
+                key={`vid-${scene.id}`}
+                ref={el => videoRefs.current[idx] = el}
+                src={scene.mobileVideoPath}
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ 
+                   opacity: idx === 0 ? 0.8 : 0, 
+                   display: idx === 0 ? 'block' : 'none',
+                   transition: 'opacity 0.3s ease-out' 
+                }}
+                muted
+                playsInline
+                preload="auto"
               />
            ))}
         </div>
       )}
       
       {/* Global Cinematic Filter */}
-      {!isMobile && <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />
 
-      {/* Scene 6: Progressive Cinematic Blur Overlay — blurs the canvas, text layers above stay sharp */}
-      {!isMobile && (
-        <div 
-          className="absolute inset-0 pointer-events-none z-15 transition-none"
-          style={{ 
-            backdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
-            WebkitBackdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
-            backgroundColor: `rgba(255,255,255,${bgOverlayAlpha.toFixed(3)})`,
-          }}
-        />
-      )}
+      {/* Scene 6: Progressive Cinematic Blur Overlay — blurs the background, text layers above stay sharp */}
+      <div 
+        className="absolute inset-0 pointer-events-none z-15 transition-none"
+        style={{ 
+          backdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
+          WebkitBackdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
+          backgroundColor: isMobile ? `rgba(255,255,255,${bgOverlayAlpha * 0.8})` : `rgba(255,255,255,${bgOverlayAlpha.toFixed(3)})`,
+        }}
+      />
 
-      {/* Content Layers - Each scene receives the current progress (Desktop Only, mobile receives it inside MobileScene) */}
-      {!isMobile && (
-        <div className="relative z-20 w-full h-full pointer-events-none">
-          {SCENES_CONFIG.map((scene, idx) => {
-            // Only render scenes that are active or immediately adjacent (for transitions)
-            // All other scenes are completely hidden to prevent text bleed-through
-            const isRelevant = Math.abs(activeScene - idx) <= 1;
-            const sceneProgressValue = activeScene === idx ? sceneProgress : (activeScene > idx ? 1 : -1);
+      {/* Content Layers - Each scene receives the current progress */}
+      <div className="relative z-20 w-full h-full pointer-events-none">
+        {SCENES_CONFIG.map((scene, idx) => {
+          // Only render scenes that are active or immediately adjacent (for transitions)
+          const isRelevant = Math.abs(activeScene - idx) <= 1;
+          const sceneProgressValue = activeScene === idx ? sceneProgress : (activeScene > idx ? 1 : -1);
 
-            return (
-              <div 
-                key={scene.id}
-                className="absolute inset-0 scene-layer"
-                style={{ 
-                  display: isRelevant ? 'block' : 'none',
-                  // Hide when not yet reached (-1) OR when fully passed (>=1)
-                  // Only show while the scene is actively progressing (0 to <1)
-                  opacity: (sceneProgressValue < 0 || sceneProgressValue >= 1) ? 0 : 1,
-                }}
-              >
-                <scene.Component 
-                  index={idx} 
-                  parentRef={masterRef} 
-                  isLoaded={isLoaded}
-                  progress={sceneProgressValue}
-                />
-              </div>
-            );
-          })}
-        </div>
-      )}
+          return (
+            <div 
+              key={scene.id}
+              className="absolute inset-0 scene-layer"
+              style={{ 
+                display: isRelevant ? 'block' : 'none',
+                opacity: (sceneProgressValue < 0 || sceneProgressValue >= 1) ? 0 : 1,
+              }}
+            >
+              <scene.Component 
+                index={idx} 
+                parentRef={masterRef} 
+                isLoaded={isLoaded}
+                progress={sceneProgressValue}
+              />
+            </div>
+          );
+        })}
+      </div>
+
 
       {!isLoaded && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
