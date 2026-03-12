@@ -42,11 +42,28 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const backdropBlur = activeScene === 5 ? Math.round(sceneProgress * 30) : 0;
   const bgOverlayAlpha = activeScene === 5 ? sceneProgress : 0;
 
+  const [loadProgress, setLoadProgress] = useState(0);
+
   // Preload All Frames
   useEffect(() => {
     let totallyLoaded = 0;
     const totalFrames = SCENES_CONFIG.reduce((acc, s) => acc + s.count, 0);
     const loadedManifest = {};
+
+    // Safety Timeout: Force load after 20 seconds to prevent getting stuck
+    const safetyTimeout = setTimeout(() => {
+      console.warn("Loading timed out, forcing display.");
+      setIsLoaded(true);
+    }, 20000);
+
+    const incrementLoad = () => {
+      totallyLoaded++;
+      setLoadProgress(Math.round((totallyLoaded / totalFrames) * 100));
+      if (totallyLoaded >= totalFrames) {
+        clearTimeout(safetyTimeout);
+        setIsLoaded(true);
+      }
+    };
 
     SCENES_CONFIG.forEach((scene, sIdx) => {
       const sceneImages = [];
@@ -54,21 +71,15 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         const img = new Image();
         const frameNumber = i.toString().padStart(4, '0');
         img.src = `${scene.path}/frame_${frameNumber}.jpg`;
-        img.onload = () => {
-          totallyLoaded++;
-          if (totallyLoaded === totalFrames) {
-            setIsLoaded(true);
-          }
-        };
-        img.onerror = () => {
-             totallyLoaded++;
-        };
+        img.onload = incrementLoad;
+        img.onerror = incrementLoad; // Proceed even on error
         sceneImages.push(img);
       }
       loadedManifest[sIdx] = sceneImages;
     });
 
     setAllImages(loadedManifest);
+    return () => clearTimeout(safetyTimeout);
   }, []);
 
   useEffect(() => {
@@ -108,14 +119,27 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       ctx.drawImage(img, offX, offY, drawW, drawH);
     };
 
+    const isMobile = window.innerWidth < 768;
+    const pixelRatio = isMobile ? Math.min(window.devicePixelRatio, 1.5) : window.devicePixelRatio;
+
     const resize = () => {
-      canvas.width = window.innerWidth * window.devicePixelRatio;
-      canvas.height = window.innerHeight * window.devicePixelRatio;
+      canvas.width = window.innerWidth * pixelRatio;
+      canvas.height = window.innerHeight * pixelRatio;
+      
+      // Optimization: Disable image smoothing for slightly crisper look on low-res mobile canvases
+      if (isMobile) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'low';
+      }
+      
       drawFrame(0, 0);
     };
 
     resize();
     window.addEventListener('resize', resize);
+
+    let lastSceneIdx = -1;
+    let lastFrameIdx = -1;
 
     // Master Timeline for Canvas + Progress Tracking
     const masterTl = gsap.timeline({
@@ -127,13 +151,11 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         scrub: 0.5,
         onUpdate: (self) => {
           const totalProgress = self.progress;
-          // Weighted system: first 5 scenes take up 15/24 (62.5%) of the scroll
-          // Last scene takes up 9/24 (37.5%)
           const firstScenesWeight = 15/24;
           let currentSceneIdx, internalProgress;
 
           if (totalProgress <= firstScenesWeight) {
-            const p = totalProgress / firstScenesWeight; // Progress through first 5 scenes
+            const p = totalProgress / firstScenesWeight;
             const rawIdx = p * 5;
             currentSceneIdx = Math.min(Math.floor(rawIdx), 4);
             internalProgress = rawIdx - currentSceneIdx;
@@ -144,16 +166,21 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
           const frameIdx = Math.round(internalProgress * (SCENES_CONFIG[currentSceneIdx].count - 1));
 
-          // Draw canvas frame
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = 'black';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          drawFrame(currentSceneIdx, frameIdx);
+          // Only Redraw if something changed
+          if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawFrame(currentSceneIdx, frameIdx);
 
-          // Crossfade at transition
-          if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-             const fade = (internalProgress - 0.9) * 10;
-             drawFrame(currentSceneIdx + 1, 0, fade);
+            // Crossfade at transition
+            if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+               const fade = (internalProgress - 0.9) * 10;
+               drawFrame(currentSceneIdx + 1, 0, fade);
+            }
+
+            lastSceneIdx = currentSceneIdx;
+            lastFrameIdx = frameIdx;
           }
 
           // Update scene progress state (drives text animations in scene components)
@@ -222,11 +249,32 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
       {!isLoaded && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
-           <div className="w-16 h-[1px] bg-vienna-beige/20 mb-8 overflow-hidden">
-             <div className="w-full h-full bg-vienna-beige/80 animate-loading-bar" />
+           {/* Progress Ring */}
+           <div className="relative w-24 h-24 mb-12 flex items-center justify-center">
+              <svg className="absolute inset-0 w-full h-full -rotate-90">
+                <circle 
+                  cx="50%" cy="50%" r="45%" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="1" 
+                  className="text-vienna-beige/10"
+                />
+                <circle 
+                  cx="50%" cy="50%" r="45%" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeDasharray={`${loadProgress * 2.83} 283`}
+                  className="text-vienna-beige/60 transition-all duration-300 ease-out"
+                />
+              </svg>
+              <div className="text-[12px] font-sans font-light tracking-[0.2em] text-vienna-beige/80">
+                {loadProgress}%
+              </div>
            </div>
-           <div className="text-vienna-beige/40 font-sans tracking-[0.5em] uppercase text-[10px]">
-             Brewing The Story
+
+           <div className="text-vienna-beige/40 font-sans tracking-[0.8em] uppercase text-[9px] animate-pulse">
+             Constructing the Void
            </div>
         </div>
       )}
