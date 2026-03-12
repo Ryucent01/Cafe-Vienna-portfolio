@@ -28,7 +28,7 @@ const Scene1Exterior = ({ index, parentRef, isLoaded, progress }) => {
       });
     } else {
       // Ensure text is shown when early in scene (intro animation handles the reveal)
-      gsap.set(q('.text-content'), { opacity: 1, y: 0 });
+      gsap.set(q('.text-content'), { opacity: 1, y: 0, filter: 'blur(0px)' });
     }
 
   }, [progress]);

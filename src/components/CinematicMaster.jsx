@@ -22,6 +22,56 @@ const SCENES_CONFIG = [
   { id: 6, path: '/assets/frames/scene6', videoPath: '/assets/videos/6-Drinking.mp4', count: 120, Component: Scene6Drinking },
 ];
 
+const MobileScene = ({ scene, index, isLoaded, isUnlocked }) => {
+  const sectionRef = useRef(null);
+  const videoRef = useRef(null);
+  const [progress, setProgress] = useState(index === 0 ? 0 : -1);
+
+  // Unlock AutoPlay strictly on user interaction (Apple Low Power Mode bypass)
+  useEffect(() => {
+    if (isUnlocked && index === 0 && videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isUnlocked, index]);
+
+  // Give each segment a 100vh scroll pin to let text animate perfectly
+  useEffect(() => {
+    if (!isUnlocked) return;
+    const st = ScrollTrigger.create({
+      trigger: sectionRef.current,
+      start: 'top top',
+      end: '+=100%', 
+      pin: true,
+      scrub: true,
+      onUpdate: (self) => {
+        setProgress(self.progress);
+        if (self.isActive && videoRef.current && videoRef.current.paused) {
+           videoRef.current.play().catch(() => {});
+        } else if (!self.isActive && videoRef.current && !videoRef.current.paused) {
+           videoRef.current.pause();
+        }
+      }
+    });
+
+    return () => st.kill();
+  }, [isUnlocked]);
+
+  return (
+    <div ref={sectionRef} className="relative w-full h-[100vh] overflow-hidden bg-black top-0">
+      <video
+        ref={videoRef}
+        src={scene.videoPath}
+        className="absolute inset-0 w-full h-full object-cover opacity-60"
+        loop muted playsInline
+      />
+      <div className="absolute inset-0 z-20 pointer-events-none">
+        <scene.Component index={index} parentRef={sectionRef} isLoaded={isLoaded} progress={progress} />
+      </div>
+    </div>
+  );
+};
+
+
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
@@ -53,36 +103,17 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     let totallyLoaded = 0;
     const loadedManifest = {};
     
+    if (isMobile) {
+       // --- MOBILE INSTANT LOAD ---
+       // Mobile browsers heavily throttle video metadata/preloads to save cellular data,
+       // causing our preloader to stall. We bypass the preloader screen on mobile instantly.
+       setLoadProgress(100);
+       setIsLoaded(true);
+       return;
+    }
+    
     // Safety Timeout: Force load after 12 seconds
     const safetyTimeout = setTimeout(() => {
-      console.warn("Primary loading timed out, forcing display.");
-      setIsLoaded(true);
-    }, 12000);
-
-    if (isMobile) {
-       // --- MOBILE VIDEO PRELOAD ---
-       const checkVideo = setInterval(() => {
-          const primaryVideo = videoRefs.current[0];
-          if (primaryVideo && primaryVideo.readyState >= 3) {
-             clearInterval(checkVideo);
-             clearTimeout(safetyTimeout);
-             setLoadProgress(100);
-             setIsLoaded(true);
-          } else if (primaryVideo && primaryVideo.duration) {
-             // Fake progress based on buffered data if possible
-             if (primaryVideo.buffered.length > 0) {
-               const bufferedEnd = primaryVideo.buffered.end(0);
-               setLoadProgress(Math.min(Math.round((bufferedEnd / primaryVideo.duration) * 100), 99));
-             }
-          }
-       }, 200);
-
-       return () => {
-         clearInterval(checkVideo);
-         clearTimeout(safetyTimeout); 
-       };
-       
-    } else {
        // --- DESKTOP IMAGE PRELOAD ---
        const frameStep = 1;
        const primaryScene = SCENES_CONFIG[0];
@@ -129,18 +160,15 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   // GSAP Orchestration
   useEffect(() => {
-    if (!isLoaded || !isUnlocked) return;
+    if (isMobile || !isLoaded || !isUnlocked) return;
 
     let canvas, ctx, pixelRatio;
     
-    if (!isMobile) {
-      canvas = canvasRef.current;
-      ctx = canvas.getContext('2d', { alpha: false });
-      pixelRatio = window.devicePixelRatio;
-    }
+    canvas = canvasRef.current;
+    ctx = canvas.getContext('2d', { alpha: false });
+    pixelRatio = window.devicePixelRatio;
 
     const drawFrame = (sceneIdx, frameIdx, alpha = 1) => {
-      if (isMobile) return;
       const img = allImages[sceneIdx]?.[frameIdx];
       if (!img) return;
 
@@ -165,17 +193,15 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     };
 
     const resize = () => {
-      if (!isMobile && canvas) {
+      if (canvas) {
         canvas.width = window.innerWidth * pixelRatio;
         canvas.height = window.innerHeight * pixelRatio;
         drawFrame(0, 0);
       }
     };
 
-    if (!isMobile) {
-      resize();
-      window.addEventListener('resize', resize);
-    }
+    resize();
+    window.addEventListener('resize', resize);
 
     let lastSceneIdx = -1;
     let lastFrameIdx = -1;
@@ -204,51 +230,26 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
           }
 
           // Execute Scrubbing based on Architecture
-          if (isMobile) {
-             const currentVideo = videoRefs.current[currentSceneIdx];
-             if (currentVideo && currentVideo.duration) {
-                // Ensure paused and scrub
-                if (!currentVideo.paused) currentVideo.pause();
-                currentVideo.currentTime = internalProgress * currentVideo.duration;
-             }
+          // ---> DESKTOP CANVAS SCENE DRAW
+          const frameStep = 1;
+          const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
+          const frameIdx = Math.round(internalProgress * (sparseLength - 1));
 
-             // Handle opacity for all videos to allow crossfade
-             videoRefs.current.forEach((vid, idx) => {
-                if (!vid) return;
-                if (idx === currentSceneIdx) {
-                   vid.style.opacity = 1;
-                } else if (internalProgress > 0.9 && idx === currentSceneIdx + 1) {
-                   vid.style.opacity = (internalProgress - 0.9) * 10;
-                   if (vid.currentTime !== 0) vid.currentTime = 0; // Prepare incoming video
-                } else {
-                   vid.style.opacity = 0;
-                }
-             });
-             
-             lastSceneIdx = currentSceneIdx;
+          // Only Redraw if something changed
+          if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawFrame(currentSceneIdx, frameIdx);
 
-          } else {
-             // ---> DESKTOP CANVAS SCENE DRAW
-             const frameStep = 1;
-             const sparseLength = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
-             const frameIdx = Math.round(internalProgress * (sparseLength - 1));
+            // Crossfade at transition
+            if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+               const fade = (internalProgress - 0.9) * 10;
+               drawFrame(currentSceneIdx + 1, 0, fade);
+            }
 
-             // Only Redraw if something changed
-             if (currentSceneIdx !== lastSceneIdx || frameIdx !== lastFrameIdx) {
-               ctx.globalAlpha = 1;
-               ctx.fillStyle = 'black';
-               ctx.fillRect(0, 0, canvas.width, canvas.height);
-               drawFrame(currentSceneIdx, frameIdx);
-
-               // Crossfade at transition
-               if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-                  const fade = (internalProgress - 0.9) * 10;
-                  drawFrame(currentSceneIdx + 1, 0, fade);
-               }
-
-               lastSceneIdx = currentSceneIdx;
-               lastFrameIdx = frameIdx;
-             }
+            lastSceneIdx = currentSceneIdx;
+            lastFrameIdx = frameIdx;
           }
 
           // Update scene progress state (drives text animations in scene components)
@@ -265,7 +266,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   }, [isLoaded, allImages, isUnlocked]);
 
   return (
-    <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
+    <div ref={isMobile ? null : masterRef} className={`relative w-full bg-black overflow-hidden cinematic-master-container ${isMobile ? 'h-auto pb-32' : 'h-screen'}`}>
       {!isMobile && (
         <canvas 
           ref={canvasRef} 
@@ -275,64 +276,65 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       )}
       
       {isMobile && (
-        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-black">
+        <div className="relative w-full z-0 bg-black flex flex-col">
            {SCENES_CONFIG.map((scene, idx) => (
-              <video
-                key={`vid-${scene.id}`}
-                ref={el => videoRefs.current[idx] = el}
-                src={scene.videoPath}
-                className="absolute inset-0 w-full h-full object-cover"
-                style={{ opacity: idx === 0 ? 1 : 0, transition: 'none', willChange: 'opacity' }}
-                muted
-                playsInline
-                preload={idx === 0 ? "auto" : "metadata"}
+              <MobileScene 
+                 key={scene.id} 
+                 scene={scene} 
+                 index={idx}
+                 isLoaded={isLoaded}
+                 isUnlocked={isUnlocked}
               />
            ))}
         </div>
       )}
       
       {/* Global Cinematic Filter */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />
+      {!isMobile && <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />}
 
       {/* Scene 6: Progressive Cinematic Blur Overlay — blurs the canvas, text layers above stay sharp */}
-      <div 
-        className="absolute inset-0 pointer-events-none z-15 transition-none"
-        style={{ 
-          backdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
-          WebkitBackdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
-          backgroundColor: `rgba(255,255,255,${bgOverlayAlpha.toFixed(3)})`,
-        }}
-      />
+      {!isMobile && (
+        <div 
+          className="absolute inset-0 pointer-events-none z-15 transition-none"
+          style={{ 
+            backdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
+            WebkitBackdropFilter: backdropBlur > 0 ? `blur(${backdropBlur}px)` : 'none',
+            backgroundColor: `rgba(255,255,255,${bgOverlayAlpha.toFixed(3)})`,
+          }}
+        />
+      )}
 
-      {/* Content Layers - Each scene receives the current progress */}
-      <div className="relative z-20 w-full h-full pointer-events-none">
-        {SCENES_CONFIG.map((scene, idx) => {
-          // Only render scenes that are active or immediately adjacent (for transitions)
-          // All other scenes are completely hidden to prevent text bleed-through
-          const isRelevant = Math.abs(activeScene - idx) <= 1;
-          const sceneProgressValue = activeScene === idx ? sceneProgress : (activeScene > idx ? 1 : -1);
+      {/* Content Layers - Each scene receives the current progress (Desktop Only, mobile receives it inside MobileScene) */}
+      {!isMobile && (
+        <div className="relative z-20 w-full h-full pointer-events-none">
+          {SCENES_CONFIG.map((scene, idx) => {
+            // Only render scenes that are active or immediately adjacent (for transitions)
+            // All other scenes are completely hidden to prevent text bleed-through
+            const isRelevant = Math.abs(activeScene - idx) <= 1;
+            const sceneProgressValue = activeScene === idx ? sceneProgress : (activeScene > idx ? 1 : -1);
 
-          return (
-            <div 
-              key={scene.id}
-              className="absolute inset-0 scene-layer"
-              style={{ 
-                display: isRelevant ? 'block' : 'none',
-                // Hide when not yet reached (-1) OR when fully passed (>=1)
-                // Only show while the scene is actively progressing (0 to <1)
-                opacity: (sceneProgressValue < 0 || sceneProgressValue >= 1) ? 0 : 1,
-              }}
-            >
-              <scene.Component 
-                index={idx} 
-                parentRef={masterRef} 
-                isLoaded={isLoaded}
-                progress={sceneProgressValue}
-              />
-            </div>
-          );
-        })}
-      </div>
+            return (
+              <div 
+                key={scene.id}
+                className="absolute inset-0 scene-layer"
+                style={{ 
+                  display: isRelevant ? 'block' : 'none',
+                  // Hide when not yet reached (-1) OR when fully passed (>=1)
+                  // Only show while the scene is actively progressing (0 to <1)
+                  opacity: (sceneProgressValue < 0 || sceneProgressValue >= 1) ? 0 : 1,
+                }}
+              >
+                <scene.Component 
+                  index={idx} 
+                  parentRef={masterRef} 
+                  isLoaded={isLoaded}
+                  progress={sceneProgressValue}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {!isLoaded && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-50">
@@ -366,8 +368,9 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         </div>
       )}
 
+      {/* "Begin the Journey" Button works globally for both architectures */}
       {isLoaded && !isUnlocked && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black z-[100] animate-[fadeIn_2s_ease_forwards]">
+        <div className={`fixed inset-0 flex flex-col items-center justify-center bg-black z-[100] animate-[fadeIn_2s_ease_forwards] ${isMobile ? 'h-screen' : ''}`}>
            <button 
              onClick={unlockAudio}
              className="group relative flex flex-col items-center justify-center cursor-pointer transition-all duration-1000"
