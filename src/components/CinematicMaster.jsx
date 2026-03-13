@@ -163,7 +163,9 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
          drawFrame(currentSceneIdx + 1, 0, fade);
       }
 
-      setActiveScene(currentSceneIdx);
+      // Update scene progress state (drives text animations in scene components)
+      // PERFORMANCE: Only update activeScene state when the integer index actually changes
+      setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
       setSceneProgress(internalProgress);
     };
 
@@ -221,17 +223,21 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       {/* Content Layers - Each scene receives the current progress */}
       <div className="relative z-20 w-full h-full pointer-events-none">
         {SCENES_CONFIG.map((scene, idx) => {
-          // Only render scenes that are active or immediately adjacent (for transitions)
-          const isRelevant = Math.abs(activeScene - idx) <= 1;
-          const sceneProgressValue = activeScene === idx ? sceneProgress : (activeScene > idx ? 1 : -1);
+          // PERFORMANCE: Use stricter relevance check to keep DOM lean
+          const isActive = activeScene === idx;
+          const isNext = activeScene + 1 === idx && sceneProgress > 0.8;
+          const isPrev = activeScene - 1 === idx && sceneProgress < 0.2;
+          const isRelevant = isActive || isNext || isPrev;
+          
+          const sceneProgressValue = isActive ? sceneProgress : (activeScene > idx ? 1 : -1);
 
           return (
             <div 
               key={scene.id}
               className="absolute inset-0 scene-layer"
               style={{ 
-                display: isRelevant ? 'block' : 'none',
-                opacity: (sceneProgressValue < 0 || sceneProgressValue >= 1) ? 0 : 1,
+                visibility: isRelevant ? 'visible' : 'hidden',
+                opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
               }}
             >
               <scene.Component 

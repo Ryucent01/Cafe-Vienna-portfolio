@@ -11,50 +11,46 @@ const Scene1Exterior = ({ index, parentRef, isLoaded, progress }) => {
   // Progress-driven exit: fade text out as scene 1 approaches its end
   useEffect(() => {
     const q = gsap.utils.selector(containerRef);
-    const container = containerRef.current;
-    if (!container) return;
-
-    if (progress < 0 || progress === undefined) return;
+    if (!containerRef.current || progress === undefined || progress < 0) return;
 
     const p = progress;
 
-    // Text holds until 65% through scene 1's scroll, then exits cleanly
+    // PERFORMANCE: Replace Blur with Scale/Opacity for better FPS
     if (p > 0.65) {
-      const exitP = (p - 0.65) / 0.35; // 0→1 over last 35% of scroll window
+      const exitP = (p - 0.65) / 0.35; 
       gsap.set(q('.text-content'), {
         opacity: Math.max(0, 1 - exitP),
-        y: -exitP * 80,
-        filter: `blur(${exitP * 20}px)`,
+        y: -exitP * 60,
+        scale: 1 + exitP * 0.1,
       });
     } else {
-      // Ensure text is shown when early in scene (intro animation handles the reveal)
-      gsap.set(q('.text-content'), { opacity: 1, y: 0, filter: 'blur(0px)' });
+      gsap.set(q('.text-content'), { opacity: 1, y: 0, scale: 1 });
     }
 
   }, [progress]);
 
-  // One-time Intro Animation (triggered after preloader finishes)
+  // One-time Intro Animation
   useEffect(() => {
     if (isLoaded && !introPlayed.current) {
       introPlayed.current = true;
       const q = gsap.utils.selector(containerRef);
 
-      // Setup Initial Blur/Opacity
-      gsap.set(q('.animate-intro'), { opacity: 0, filter: 'blur(40px)' });
+      // PERFORMANCE: Remove Blur from intro
+      gsap.set(q('.animate-intro'), { opacity: 0, scale: 0.95 });
       gsap.set(q('.title'), { scale: 0.8 });
 
       const introTl = gsap.timeline();
 
       introTl.to(q('.animate-intro'), {
         opacity: 1,
-        filter: 'blur(0px)',
-        stagger: 0.15,
-        duration: 1.2,
+        scale: 1,
+        stagger: 0.1,
+        duration: 1.0,
         ease: 'power2.out'
       })
         .to(q('.title'), {
           scale: 1,
-          duration: 1.5,
+          duration: 1.2,
           ease: 'expo.out'
         }, 0);
     }
