@@ -45,6 +45,24 @@ export const MusicProvider = ({ children }) => {
     }
   }, [isPlaying, isUnlocked]);
 
+  // Page Visibility API: Pause music when tab is hidden (minimized)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const audio = audioRef.current;
+      if (document.hidden) {
+        audio.pause();
+      } else if (isPlaying && isUnlocked) {
+        // Only resume if it was actually playing and unlocked before
+        audio.play().catch(err => console.error("Audio resume failed:", err));
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isPlaying, isUnlocked]);
+
   const togglePlay = () => setIsPlaying(!isPlaying);
   
   const nextTrack = () => {
