@@ -52,7 +52,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   useEffect(() => {
     let totallyLoaded = 0;
     const loadedManifest = {};
-    const frameStep = isMobile ? 3 : 1;
+    const frameStep = isMobile ? 6 : 1;
     
     // Calculate total frames to wait for
     const totalFramesAcrossAllScenes = SCENES_CONFIG.reduce((acc, scene) => {
@@ -147,7 +147,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
       }
 
-      const frameStep = isMobile ? 3 : 1;
+      const frameStep = isMobile ? 6 : 1;
       const sceneFramesCount = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
       const frameIdx = Math.round(internalProgress * (sceneFramesCount - 1));
 
@@ -186,7 +186,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         start: 'top top',
         end: '+=2400%', 
         pin: true,
-        scrub: 0.2, // Slightly smoother scrub for premium feel
+        scrub: isMobile ? 0.6 : 0.2, // Smoother scrub on mobile for fewer frames
         onUpdate: (self) => updateCinematic(self.progress)
       }
     });
