@@ -17,9 +17,8 @@ export const SmoothScrollProvider = ({ children }) => {
       gestureDirection: 'vertical',
       smooth: true,
       mouseMultiplier: 1,
-      smoothTouch: true,
-      syncTouch: true,
-      touchMultiplier: 1.5,
+      smoothTouch: false,
+      touchMultiplier: 2,
       infinite: false,
     });
 
