@@ -25,6 +25,7 @@ const SCENES_CONFIG = [
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
+  const videoRefs = useRef([]);
   
   // Determine architecture once on mount
   const [isMobile] = useState(() => window.innerWidth < 768);
@@ -165,8 +166,22 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
       }
 
-      // 1. MOBILE LOGIC: Skip canvas entirely, just update text progress
+      // 1. MOBILE LOGIC: Scrub video currentTime
       if (isMobile) {
+        const vid = videoRefs.current[currentSceneIdx];
+        if (vid && vid.readyState >= 1) { // 1 = HAVE_METADATA
+          vid.currentTime = internalProgress * vid.duration;
+        }
+
+        // Scrub the next video if in crossfade zone
+        if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+           const nextVid = videoRefs.current[currentSceneIdx + 1];
+           if (nextVid && nextVid.readyState >= 1) {
+             const fade = (internalProgress - 0.9) * 10;
+             nextVid.currentTime = (fade * 0.1) * nextVid.duration; // scrub first 10%
+           }
+        }
+
         setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
         setSceneProgress(internalProgress);
         return;
@@ -210,6 +225,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       if (!isMobile && canvas) {
         canvas.width = window.innerWidth * pixelRatio;
         canvas.height = window.innerHeight * pixelRatio;
+        lastRenderedFrameKey = null; // force redraw after clear
       }
       const p = ScrollTrigger.getById('master-cinematic')?.progress || 0;
       updateCinematic(p);
@@ -230,7 +246,14 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       }
     });
 
+    // Fix: Force GSAP to apply the first paint after DOM pinning resizes the canvas container
+    const initialPaintTimeout = setTimeout(() => {
+      lastRenderedFrameKey = null;
+      updateCinematic(ScrollTrigger.getById('master-cinematic')?.progress || 0);
+    }, 50);
+
     return () => {
+      clearTimeout(initialPaintTimeout);
       window.removeEventListener('resize', resize);
       masterTl.kill();
       const st = ScrollTrigger.getById('master-cinematic');
@@ -259,20 +282,18 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
             const isPrev = activeScene - 1 === idx && sceneProgress < 0.2;
             const isRelevant = isActive || isNext || isPrev;
 
-            // Only mount DOM nodes for currently visible or crossfading videos to save mobile RAM
-            if (!isRelevant) return null;
-
             return (
               <video
                 key={`vid-${scene.id}`}
+                ref={el => videoRefs.current[idx] = el}
                 src={scene.videoPath}
-                autoPlay
-                loop
                 muted
                 playsInline
-                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+                preload="auto"
+                className="absolute inset-0 w-full h-full object-cover transition-none"
                 style={{ 
                   opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
+                  visibility: isRelevant ? 'visible' : 'hidden', // hides inactive videos
                   pointerEvents: 'none'
                 }}
               />
