@@ -64,8 +64,12 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     const incrementLoad = () => {
       totallyLoaded++;
-      const progress = Math.min(Math.round((totallyLoaded / totalFramesAcrossAllScenes) * 100), 100);
-      setLoadProgress(progress);
+      
+      // Batch state updates to prevent React thrashing during preload
+      if (totallyLoaded % 5 === 0 || totallyLoaded >= totalFramesAcrossAllScenes) {
+        const progress = Math.min(Math.round((totallyLoaded / totalFramesAcrossAllScenes) * 100), 100);
+        setLoadProgress(progress);
+      }
       
       if (totallyLoaded >= totalFramesAcrossAllScenes) {
         setAllImages(loadedManifest);
@@ -133,6 +137,9 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       ctx.drawImage(img, offX, offY, drawW, drawH);
     };
 
+    let lastRenderedFrameKey = null;
+    let rAF_ID = null;
+
     const updateCinematic = (totalProgress) => {
       const firstScenesWeight = 15/24;
       let currentSceneIdx, internalProgress;
@@ -151,22 +158,37 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       const sceneFramesCount = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
       const frameIdx = Math.round(internalProgress * (sceneFramesCount - 1));
 
-      // Clear and Draw
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      drawFrame(currentSceneIdx, frameIdx);
-
-      // Handle Crossfade logic
-      if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-         const fade = (internalProgress - 0.9) * 10;
-         drawFrame(currentSceneIdx + 1, 0, fade);
+      // Throttle canvas draw using Request Animation Frame and caching
+      const frameKey = `${currentSceneIdx}-${frameIdx}`;
+      if (lastRenderedFrameKey === frameKey) {
+        // We're already showing this exact frame, skip expensive redraw
+        setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
+        setSceneProgress(internalProgress);
+        return;
       }
 
-      // Update scene progress state (drives text animations in scene components)
-      // PERFORMANCE: Only update activeScene state when the integer index actually changes
-      setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
-      setSceneProgress(internalProgress);
+      if (rAF_ID) cancelAnimationFrame(rAF_ID);
+      
+      rAF_ID = requestAnimationFrame(() => {
+        // Clear and Draw
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawFrame(currentSceneIdx, frameIdx);
+
+        // Handle Crossfade logic
+        if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+           const fade = (internalProgress - 0.9) * 10;
+           drawFrame(currentSceneIdx + 1, 0, fade);
+        }
+
+        lastRenderedFrameKey = frameKey;
+        
+        // Update scene progress state (drives text animations in scene components)
+        // PERFORMANCE: Only update activeScene state when the integer index actually changes
+        setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
+        setSceneProgress(internalProgress);
+      });
     };
 
     const resize = () => {
@@ -193,6 +215,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     return () => {
       window.removeEventListener('resize', resize);
+      if (rAF_ID) cancelAnimationFrame(rAF_ID);
       masterTl.kill();
       const st = ScrollTrigger.getById('master-cinematic');
       if (st) st.kill();
