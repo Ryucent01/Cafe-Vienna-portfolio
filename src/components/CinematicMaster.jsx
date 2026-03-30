@@ -165,8 +165,22 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
       }
 
-      // 1. MOBILE LOGIC: Skip canvas entirely, just update text progress
+      // 1. MOBILE LOGIC: Direct High-Speed Video Scrubbing
       if (isMobile) {
+        const vid = videoRefs.current[currentSceneIdx];
+        if (vid && vid.readyState >= 1) { // 1 = HAVE_METADATA
+          vid.currentTime = internalProgress * vid.duration;
+        }
+
+        // Pre-scrub the next video if in crossfade zone for seamless transitions
+        if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
+           const nextVid = videoRefs.current[currentSceneIdx + 1];
+           if (nextVid && nextVid.readyState >= 1) {
+             const fade = (internalProgress - 0.9) * 10;
+             nextVid.currentTime = (fade * 0.1) * nextVid.duration; // scrub first 10%
+           }
+        }
+
         setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
         setSceneProgress(internalProgress);
         return;
@@ -257,7 +271,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         />
       )}
 
-      {/* MOBILE: Native Video Layers */}
+      {/* MOBILE: Native Video Layers (Persistent Mounting to prevent Safari UI freeze) */}
       {isMobile && (
         <div className="absolute inset-0 w-full h-full bg-black">
           {SCENES_CONFIG.map((scene, idx) => {
@@ -266,20 +280,18 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
             const isPrev = activeScene - 1 === idx && sceneProgress < 0.2;
             const isRelevant = isActive || isNext || isPrev;
 
-            // Only mount DOM nodes for currently visible or crossfading videos to save mobile RAM
-            if (!isRelevant) return null;
-
             return (
               <video
                 key={`vid-${scene.id}`}
+                ref={el => videoRefs.current[idx] = el}
                 src={scene.videoPath}
-                autoPlay
-                loop
                 muted
                 playsInline
-                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+                preload="auto"
+                className="absolute inset-0 w-full h-full object-cover transition-none"
                 style={{ 
                   opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
+                  visibility: isRelevant ? 'visible' : 'hidden', // hides inactive videos
                   pointerEvents: 'none'
                 }}
               />
@@ -392,15 +404,15 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
            </button>
         </div>
       )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+      `}} />
     </div>
   );
 };
-
-<style dangerouslySetInnerHTML={{ __html: `
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-`}} />
 
 export default CinematicMaster;
