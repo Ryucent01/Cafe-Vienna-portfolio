@@ -110,14 +110,10 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     if (!isLoaded || !isUnlocked) return;
 
     const canvas = canvasRef.current;
-    if (!canvas && !isMobile) return;
+    if (!canvas) return;
     
-    let ctx = null;
-    let pixelRatio = 1.0;
-    if (!isMobile) {
-      ctx = canvas.getContext('2d', { alpha: false });
-      pixelRatio = window.devicePixelRatio;
-    }
+    let ctx = canvas.getContext('2d', { alpha: false });
+    let pixelRatio = window.devicePixelRatio || 1.0;
 
     const drawFrame = (sceneIdx, frameIdx, alpha = 1) => {
       const img = allImages[sceneIdx]?.[frameIdx];
