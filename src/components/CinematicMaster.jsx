@@ -230,7 +230,14 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       }
     });
 
+    // Fix: Force GSAP/Canvas to apply the first paint after setup
+    const initialPaintTimeout = setTimeout(() => {
+      lastRenderedFrameKey = null;
+      updateCinematic(ScrollTrigger.getById('master-cinematic')?.progress || 0);
+    }, 50);
+
     return () => {
+      clearTimeout(initialPaintTimeout);
       window.removeEventListener('resize', resize);
       masterTl.kill();
       const st = ScrollTrigger.getById('master-cinematic');
@@ -251,7 +258,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       )}
 
       {/* MOBILE: Native Video Layers */}
-      {isMobile && isUnlocked && (
+      {isMobile && (
         <div className="absolute inset-0 w-full h-full bg-black">
           {SCENES_CONFIG.map((scene, idx) => {
             const isActive = activeScene === idx;
