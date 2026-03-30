@@ -305,11 +305,18 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
                 src={scene.videoPath}
                 muted
                 playsInline
+                autoPlay
+                loop
                 preload="auto"
+                onLoadedMetadata={(e) => {
+                  if (idx === activeScene) {
+                    e.currentTarget.currentTime = 0;
+                  }
+                }}
                 className="absolute inset-0 w-full h-full object-cover transition-none"
                 style={{ 
-                  opacity: isUnlocked ? (isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0))) : 0,
-                  visibility: isRelevant ? 'visible' : 'hidden', // hides inactive videos
+                  opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
+                  visibility: isRelevant ? 'visible' : 'hidden',
                   pointerEvents: 'none'
                 }}
               />
