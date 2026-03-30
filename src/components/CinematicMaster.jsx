@@ -25,6 +25,8 @@ const SCENES_CONFIG = [
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
+  const videoRefs = useRef([]);
+  const updateCinematicRef = useRef(null);
   
   // Determine architecture once on mount
   const [isMobile] = useState(() => window.innerWidth < 768);
@@ -34,9 +36,10 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const [activeScene, setActiveScene] = useState(0);
   const [sceneProgress, setSceneProgress] = useState(0);
   const { unlockAudio, isUnlocked } = useContext(MusicContext);
-
+  const isUnlockedRef = useRef(isUnlocked);
 
   useEffect(() => {
+    isUnlockedRef.current = isUnlocked;
     if (isUnlocked && onJourneyStart) {
       onJourneyStart();
     }
@@ -113,7 +116,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     // GSAP Orchestration
   useEffect(() => {
-    if (!isLoaded || !isUnlocked) return;
+    if (!isLoaded) return;
 
     const canvas = canvasRef.current;
     if (!canvas && !isMobile) return;
@@ -152,6 +155,11 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     let lastRenderedFrameKey = null;
 
     const updateCinematic = (totalProgress) => {
+      // Use ref to read latest unlock state within this closure
+      if (!isUnlockedRef.current) {
+        totalProgress = 0;
+      }
+
       const firstScenesWeight = 15/24;
       let currentSceneIdx, internalProgress;
 
@@ -244,20 +252,30 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       }
     });
 
+    // Provide the scrub function to the ref immediately so external effects can call it
+    updateCinematicRef.current = updateCinematic;
+
     // Fix: Force GSAP/Canvas to apply the first paint after setup
-    const initialPaintTimeout = setTimeout(() => {
+    requestAnimationFrame(() => {
       lastRenderedFrameKey = null;
       updateCinematic(ScrollTrigger.getById('master-cinematic')?.progress || 0);
-    }, 50);
+    });
 
     return () => {
-      clearTimeout(initialPaintTimeout);
+      updateCinematicRef.current = null;
       window.removeEventListener('resize', resize);
       masterTl.kill();
       const st = ScrollTrigger.getById('master-cinematic');
       if (st) st.kill();
     };
-  }, [isLoaded, allImages, isUnlocked, isMobile]);
+  }, [isLoaded, allImages, isMobile]);
+
+  // Fix: Force redraw on unlock to eliminate black flicker after preloader fades
+  useEffect(() => {
+    if (isUnlocked && updateCinematicRef.current) {
+        updateCinematicRef.current(0);
+    }
+  }, [isUnlocked]);
 
   return (
     <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
@@ -290,7 +308,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
                 preload="auto"
                 className="absolute inset-0 w-full h-full object-cover transition-none"
                 style={{ 
-                  opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
+                  opacity: isUnlocked ? (isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0))) : 0,
                   visibility: isRelevant ? 'visible' : 'hidden', // hides inactive videos
                   pointerEvents: 'none'
                 }}

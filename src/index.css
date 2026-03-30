@@ -13,7 +13,7 @@
 
 @layer base {
   body {
-    background-color: var(--color-vienna-brown);
+    background-color: #000000;
     color: var(--color-vienna-cream);
     font-family: var(--font-sans);
     @apply antialiased overflow-x-hidden selection:bg-vienna-green selection:text-white;
