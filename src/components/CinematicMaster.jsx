@@ -25,7 +25,6 @@ const SCENES_CONFIG = [
 const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const masterRef = useRef(null);
   const canvasRef = useRef(null);
-  const videoRefs = useRef([]);
   
   // Determine architecture once on mount
   const [isMobile] = useState(() => window.innerWidth < 768);
@@ -51,16 +50,11 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   // --- STRICT PRELOADER (DESKTOP ONLY) ---
   useEffect(() => {
-    // If mobile, skip preloading images entirely and just show the "Begin Journey" button instantly
-    if (isMobile) {
-      setLoadProgress(100);
-      setIsLoaded(true);
-      return;
-    }
-
     let totallyLoaded = 0;
     const loadedManifest = {};
-    const frameStep = 1;
+    
+    const frameStep = isMobile ? 6 : 1;
+    const extension = isMobile ? 'webp' : 'jpg';
     
     // Calculate total frames to wait for
     const totalFramesAcrossAllScenes = SCENES_CONFIG.reduce((acc, scene) => {
@@ -88,8 +82,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     SCENES_CONFIG.forEach((scene, sIdx) => {
       const sceneImages = [];
-      const basePath = scene.path;
-      const extension = 'jpg';
+      const basePath = isMobile ? `${scene.path}/mobile` : scene.path;
 
       for (let i = 1; i <= scene.count; i += frameStep) {
         const img = new Image();
@@ -128,7 +121,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     const drawFrame = (sceneIdx, frameIdx, alpha = 1) => {
       const img = allImages[sceneIdx]?.[frameIdx];
-      if (!img || isMobile) return;
+      if (!img) return;
 
       const canvasRatio = canvas.width / canvas.height;
       const imgRatio = img.width / img.height;
@@ -166,29 +159,8 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
         internalProgress = (totalProgress - firstScenesWeight) / (1 - firstScenesWeight);
       }
 
-      // 1. MOBILE LOGIC: Scrub video currentTime
-      if (isMobile) {
-        const vid = videoRefs.current[currentSceneIdx];
-        if (vid && vid.readyState >= 1) { // 1 = HAVE_METADATA
-          vid.currentTime = internalProgress * vid.duration;
-        }
-
-        // Scrub the next video if in crossfade zone
-        if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
-           const nextVid = videoRefs.current[currentSceneIdx + 1];
-           if (nextVid && nextVid.readyState >= 1) {
-             const fade = (internalProgress - 0.9) * 10;
-             nextVid.currentTime = (fade * 0.1) * nextVid.duration; // scrub first 10%
-           }
-        }
-
-        setActiveScene(prev => prev !== currentSceneIdx ? currentSceneIdx : prev);
-        setSceneProgress(internalProgress);
-        return;
-      }
-
-      // 2. DESKTOP LOGIC: Draw frames to canvas
-      const frameStep = 1;
+      // 1. DYNAMIC ASSET LOGIC: Draw frames to canvas (Unifies Desktop/Mobile)
+      const frameStep = isMobile ? 6 : 1;
       const sceneFramesCount = Math.ceil(SCENES_CONFIG[currentSceneIdx].count / frameStep);
       const frameIdx = Math.round(internalProgress * (sceneFramesCount - 1));
 
@@ -222,7 +194,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     };
 
     const resize = () => {
-      if (!isMobile && canvas) {
+      if (canvas) {
         canvas.width = window.innerWidth * pixelRatio;
         canvas.height = window.innerHeight * pixelRatio;
         lastRenderedFrameKey = null; // force redraw after clear
@@ -265,42 +237,11 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
       
       {/* DESKTOP: Canvas Renderer */}
-      {!isMobile && (
-        <canvas 
-          ref={canvasRef} 
-          className="absolute inset-0 w-full h-full block" 
-          style={{ width: '100%', height: '100%' }}
-        />
-      )}
-
-      {/* MOBILE: Native Video Layers */}
-      {isMobile && isUnlocked && (
-        <div className="absolute inset-0 w-full h-full bg-black">
-          {SCENES_CONFIG.map((scene, idx) => {
-            const isActive = activeScene === idx;
-            const isNext = activeScene + 1 === idx && sceneProgress > 0.8;
-            const isPrev = activeScene - 1 === idx && sceneProgress < 0.2;
-            const isRelevant = isActive || isNext || isPrev;
-
-            return (
-              <video
-                key={`vid-${scene.id}`}
-                ref={el => videoRefs.current[idx] = el}
-                src={scene.videoPath}
-                muted
-                playsInline
-                preload="auto"
-                className="absolute inset-0 w-full h-full object-cover transition-none"
-                style={{ 
-                  opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
-                  visibility: isRelevant ? 'visible' : 'hidden', // hides inactive videos
-                  pointerEvents: 'none'
-                }}
-              />
-            );
-          })}
-        </div>
-      )}
+      <canvas 
+        ref={canvasRef} 
+        className="absolute inset-0 w-full h-full block" 
+        style={{ width: '100%', height: '100%' }}
+      />
       
       {/* Global Cinematic Filter */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none z-10" />
