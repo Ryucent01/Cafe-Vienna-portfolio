@@ -49,79 +49,39 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   const [loadProgress, setLoadProgress] = useState(0);
 
-  // --- STRICT PRELOADER (+ MOBILE VIDEO PRELOAD) ---
+  // --- STRICT PRELOADER (DESKTOP ONLY) ---
   useEffect(() => {
-    // If mobile, wait for all videos' metadata to be ready
+    // If mobile, skip preloading images entirely and just show the "Begin Journey" button instantly
     if (isMobile) {
-      let videosReady = 0;
-      const total = SCENES_CONFIG.length;
-      
-      const checkProgress = () => {
-        videosReady++;
-        const progress = Math.min(Math.round((videosReady / total) * 100), 100);
-        setLoadProgress(progress);
-        
-        if (videosReady >= total) {
-          // Add a safety delay for the first frame to definitely be ready for paint
-          setTimeout(() => {
-            setIsLoaded(true);
-          }, 800);
-        }
-      };
-
-      const pollVideos = setInterval(() => {
-        const firstVid = videoRefs.current[0];
-        if (firstVid) {
-          clearInterval(pollVideos);
-          
-          SCENES_CONFIG.forEach((_, idx) => {
-            const v = videoRefs.current[idx];
-            if (!v) return;
-            
-            // 1 = HAVE_METADATA is enough to know duration and start scrubbing
-            if (v.readyState >= 1) {
-              checkProgress();
-            } else {
-              v.onloadedmetadata = () => {
-                checkProgress();
-                v.onloadedmetadata = null;
-              };
-              // Fallback just in case
-              v.oncanplay = () => {
-                if (v.onloadedmetadata) {
-                  v.onloadedmetadata();
-                  v.onloadedmetadata = null;
-                }
-              };
-            }
-          });
-        }
-      }, 100);
-
-      return () => {
-        clearInterval(pollVideos);
-      };
+      setLoadProgress(100);
+      setIsLoaded(true);
+      return;
     }
 
-    // DESKTOP LOGIC (only runs if !isMobile)
     let totallyLoaded = 0;
     const loadedManifest = {};
     const frameStep = 1;
     
+    // Calculate total frames to wait for
     const totalFramesAcrossAllScenes = SCENES_CONFIG.reduce((acc, scene) => {
       return acc + Math.ceil(scene.count / frameStep);
     }, 0);
 
+    // Initial load progress
     setLoadProgress(1);
 
     const incrementLoad = () => {
       totallyLoaded++;
+      
+      // Batch state updates to prevent React thrashing during preload
       if (totallyLoaded % 5 === 0 || totallyLoaded >= totalFramesAcrossAllScenes) {
         const progress = Math.min(Math.round((totallyLoaded / totalFramesAcrossAllScenes) * 100), 100);
         setLoadProgress(progress);
       }
+      
       if (totallyLoaded >= totalFramesAcrossAllScenes) {
         setAllImages(loadedManifest);
+        // Add a slight delay for state settling
         setTimeout(() => setIsLoaded(true), 100);
       }
     };
@@ -134,13 +94,16 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       for (let i = 1; i <= scene.count; i += frameStep) {
         const img = new Image();
         const frameNumber = i.toString().padStart(4, '0');
+        
         img.onload = incrementLoad;
-        img.onerror = incrementLoad; 
+        img.onerror = incrementLoad; // Skip missing frames to prevent preloader stall
         img.src = `${basePath}/frame_${frameNumber}.${extension}`;
+        
         sceneImages.push(img);
       }
       loadedManifest[sIdx] = sceneImages;
     });
+
   }, [isMobile]);
 
   useEffect(() => {
@@ -151,7 +114,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     // GSAP Orchestration
   useEffect(() => {
-    if (!isLoaded || !isUnlocked) return;
+    if (!isLoaded) return;
 
     const canvas = canvasRef.current;
     if (!canvas && !isMobile) return;
@@ -190,6 +153,11 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
     let lastRenderedFrameKey = null;
 
     const updateCinematic = (totalProgress) => {
+      // If not unlocked, force show the very first frame of the exterior scene
+      if (!isUnlocked) {
+        totalProgress = 0;
+      }
+
       const firstScenesWeight = 15/24;
       let currentSceneIdx, internalProgress;
 
@@ -206,14 +174,14 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       // 1. MOBILE LOGIC: Scrub video currentTime
       if (isMobile) {
         const vid = videoRefs.current[currentSceneIdx];
-        if (vid && vid.readyState >= 1 && vid.duration) { 
+        if (vid && vid.readyState >= 1) { // 1 = HAVE_METADATA
           vid.currentTime = internalProgress * vid.duration;
         }
 
         // Scrub the next video if in crossfade zone
         if (internalProgress > 0.9 && currentSceneIdx < SCENES_CONFIG.length - 1) {
            const nextVid = videoRefs.current[currentSceneIdx + 1];
-           if (nextVid && nextVid.readyState >= 1 && nextVid.duration) {
+           if (nextVid && nextVid.readyState >= 1) {
              const fade = (internalProgress - 0.9) * 10;
              nextVid.currentTime = (fade * 0.1) * nextVid.duration; // scrub first 10%
            }
@@ -300,19 +268,22 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
   return (
     <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
+
       
       {/* DESKTOP: Canvas Renderer */}
       {!isMobile && (
         <canvas 
           ref={canvasRef} 
           className="absolute inset-0 w-full h-full block" 
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', zIndex: 0 }}
+
         />
       )}
 
-      {/* MOBILE: Native Video Layers (rendered early for preloading) */}
+      {/* MOBILE: Native Video Layers */}
       {isMobile && (
-        <div className={`absolute inset-0 w-full h-full bg-black ${!isUnlocked ? 'pointer-events-none' : ''}`}>
+        <div className="absolute inset-0 w-full h-full">
+
           {SCENES_CONFIG.map((scene, idx) => {
             const isActive = activeScene === idx;
             const isNext = activeScene + 1 === idx && sceneProgress > 0.8;
@@ -327,10 +298,10 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
                 muted
                 playsInline
                 preload="auto"
-                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
+                className="absolute inset-0 w-full h-full object-cover transition-none"
                 style={{ 
-                  opacity: isUnlocked ? (isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0))) : 0,
-                  visibility: isRelevant || !isUnlocked ? 'visible' : 'hidden', 
+                  opacity: isActive ? 1 : (isNext ? (sceneProgress - 0.8) * 5 : (isPrev ? (0.2 - sceneProgress) * 5 : 0)),
+                  visibility: isRelevant ? 'visible' : 'hidden', // hides inactive videos
                   pointerEvents: 'none'
                 }}
               />
