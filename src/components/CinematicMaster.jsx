@@ -36,6 +36,10 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
   const [sceneProgress, setSceneProgress] = useState(0);
   const { unlockAudio, isUnlocked } = useContext(MusicContext);
 
+  // Ref so updateCinematic closure always reads the current unlock state
+  const isUnlockedRef = useRef(isUnlocked);
+  useEffect(() => { isUnlockedRef.current = isUnlocked; }, [isUnlocked]);
+
 
   useEffect(() => {
     if (isUnlocked && onJourneyStart) {
@@ -154,7 +158,8 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
     const updateCinematic = (totalProgress) => {
       // If not unlocked, force show the very first frame of the exterior scene
-      if (!isUnlocked) {
+      // Use ref so this closure always reads the live value without re-mounting the effect
+      if (!isUnlockedRef.current) {
         totalProgress = 0;
       }
 
@@ -264,7 +269,9 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
       const st = ScrollTrigger.getById('master-cinematic');
       if (st) st.kill();
     };
-  }, [isLoaded, allImages, isUnlocked, isMobile]);
+  // NOTE: isUnlocked intentionally excluded — we use isUnlockedRef inside
+  // the closure to avoid killing/recreating the ScrollTrigger on unlock.
+  }, [isLoaded, allImages, isMobile]);
 
   return (
     <div ref={masterRef} className="relative w-full h-screen bg-black overflow-hidden cinematic-master-container">
@@ -389,7 +396,7 @@ const CinematicMaster = ({ onLoadComplete, onJourneyStart }) => {
 
       {/* "Begin the Journey" Button works globally for both architectures */}
       {isLoaded && !isUnlocked && (
-        <div className={`fixed inset-0 flex flex-col items-center justify-center bg-black z-[100] animate-[fadeIn_2s_ease_forwards] ${isMobile ? 'h-screen' : ''}`}>
+        <div className={`fixed inset-0 flex flex-col items-center justify-center z-[100] animate-[fadeIn_2s_ease_forwards] ${isMobile ? 'h-screen' : ''}`} style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(2px)' }}>
            <button 
              onClick={unlockAudio}
              className="group relative flex flex-col items-center justify-center cursor-pointer transition-all duration-1000"
